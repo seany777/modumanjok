@@ -74,6 +74,22 @@ button:focus-visible, input:focus-visible { outline: 3px solid rgba(22, 35, 30, 
 .food-orbit { position: absolute; width: 48px; height: 48px; display: grid; place-items: center; border-radius: 17px; background: #fff; font-size: 24px; box-shadow: 0 10px 20px rgba(22,35,30,.12); }
 .orbit-one { top: 5px; right: 8px; transform: rotate(8deg); }
 .orbit-two { bottom: 2px; left: 0; transform: rotate(-9deg); }
+.home-ad-wrap { position: relative; margin: 0 -2px; }
+.home-ad-carousel { display: flex; overflow-x: auto; scroll-snap-type: x mandatory; scrollbar-width: none; border-radius: 28px; }
+.home-ad-carousel::-webkit-scrollbar { display: none; }
+.home-ad-card { position: relative; flex: 0 0 100%; min-height: 224px; padding: 25px 22px; overflow: hidden; scroll-snap-align: start; background: #20201f; color: #fff; }
+.home-ad-card::after { content: ""; position: absolute; right: -48px; top: -54px; width: 205px; height: 205px; border: 1px solid rgba(255,255,255,.16); border-radius: 50%; }
+.home-ad-card > span { position: relative; z-index: 1; font-size: 9px; font-weight: 850; letter-spacing: .12em; opacity: .7; }
+.home-ad-card h2 { position: relative; z-index: 1; margin: 13px 0 7px; font-size: 24px; line-height: 1.23; letter-spacing: -.055em; }
+.home-ad-card p { position: relative; z-index: 1; margin: 0; font-size: 10px; opacity: .7; }
+.home-ad-card button { position: absolute; z-index: 2; left: 22px; bottom: 22px; padding: 10px 13px; border: 0; border-radius: 11px; background: #fff; color: #171717; font-size: 10px; font-weight: 850; cursor: pointer; }
+.home-ad-card.ad-light { background: #dededb; color: #171717; }
+.home-ad-card.ad-light::after { border-color: rgba(0,0,0,.12); }
+.home-ad-card.ad-light button { background: #171717; color: #fff; }
+.home-ad-card.ad-accent { background: #777774; }
+.ad-dots { position: absolute; z-index: 3; right: 17px; bottom: 16px; display: flex; gap: 5px; }
+.ad-dots span { width: 5px; height: 5px; border-radius: 99px; background: rgba(255,255,255,.42); transition: width .2s ease; }
+.ad-dots span.active { width: 16px; background: #fff; }
 
 .section-block { margin-top: 29px; }
 .section-block.compact { margin-top: 25px; }
@@ -83,9 +99,15 @@ button:focus-visible, input:focus-visible { outline: 3px solid rgba(22, 35, 30, 
 .recent-room { width: 100%; padding: 19px; border: 1px solid var(--line); border-radius: 23px; background: #fff; text-align: left; cursor: pointer; box-shadow: 0 8px 25px rgba(47, 60, 52, .045); }
 .recent-top { display: flex; align-items: center; justify-content: space-between; }
 .recent-top h3 { margin: 0; font-size: 19px; letter-spacing: -.04em; }
+.recent-top > div:first-child { display: flex; flex-direction: column; gap: 3px; }
+.recent-top small { color: var(--muted); font-size: 9px; }
 .recent-top p { margin: 0; color: var(--muted); font-size: 12px; }
 .status-badge, .room-status { display: inline-flex; padding: 5px 8px; border-radius: 99px; background: #e8e8e5; color: #505050; font-size: 10px; font-weight: 800; }
 .round-arrow { width: 39px; height: 39px; display: grid; place-items: center; border-radius: 50%; background: #f3f4ef; }
+.empty-recent-room { display: flex; align-items: center; justify-content: center; gap: 11px; min-height: 105px; }
+.empty-recent-room > span { display: flex; flex-direction: column; gap: 3px; }
+.empty-recent-room b { font-size: 13px; }
+.empty-recent-room small { color: var(--muted); font-size: 9px; }
 .summary-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 9px; padding-top: 17px; margin-top: 18px; border-top: 1px solid #edf0eb; }
 .summary-item { display: flex; align-items: center; min-width: 0; gap: 7px; }
 .summary-icon { flex: 0 0 auto; width: 31px; height: 31px; display: grid; place-items: center; border-radius: 10px; background: var(--lime); }
@@ -170,6 +192,8 @@ button:focus-visible, input:focus-visible { outline: 3px solid rgba(22, 35, 30, 
 .decision-menu b { font-size: 13px; }
 .decision-menu small { color: var(--muted); font-size: 9px; }
 .share-wide { width: 100%; height: 48px; display: flex; align-items: center; justify-content: center; gap: 7px; margin-top: 14px; border: 0; border-radius: 15px; background: var(--ink); color: #fff; font-weight: 800; cursor: pointer; }
+.lobby-invite-actions { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.lobby-invite-actions .share-wide { min-width: 0; padding: 0 8px; font-size: 10px; }
 .room-flow-page { padding-bottom: 96px; overscroll-behavior-y: contain; }
 .room-lobby-hero { padding: 24px 20px; border-radius: 26px; background: #e6e6e3; }
 .room-lobby-hero h2 { margin: 13px 0 7px; font-size: 25px; line-height: 1.28; letter-spacing: -.055em; }
@@ -228,8 +252,9 @@ button:focus-visible, input:focus-visible { outline: 3px solid rgba(22, 35, 30, 
 .tournament-head span { padding: 5px 8px; border-radius: 99px; background: #e6e6e3; color: var(--ink); font-weight: 800; }
 .tournament-section > h2 { margin: 15px 0 17px; font-size: 21px; letter-spacing: -.045em; }
 .tournament-pair { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
-.tournament-pair button { min-height: 190px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 10px; padding: 16px; border: 1px solid var(--line); border-radius: 23px; background: #fff; cursor: pointer; transition: transform .16s ease, border-color .16s ease; }
+.tournament-pair button { min-height: 210px; display: flex; flex-direction: column; align-items: center; justify-content: flex-start; gap: 9px; padding: 9px 9px 14px; overflow: hidden; border: 1px solid var(--line); border-radius: 23px; background: #fff; cursor: pointer; transition: transform .16s ease, border-color .16s ease; }
 .tournament-pair button:hover { border-color: var(--ink); transform: translateY(-2px); }
+.tournament-food-image { width: 100%; aspect-ratio: 1 / .78; display: block; border-radius: 17px; background-color: #e8e8e5; background-position: center; background-size: cover; }
 .tournament-pair strong { font-size: 16px; text-align: center; }
 .tournament-pair small { color: var(--muted); font-size: 9px; }
 .tournament-winner { display: flex; flex-direction: column; align-items: center; padding: 35px 20px; border: 1px solid var(--line); border-radius: 25px; background: #fff; text-align: center; }
@@ -282,6 +307,7 @@ button:focus-visible, input:focus-visible { outline: 3px solid rgba(22, 35, 30, 
 .modal-card h2, .action-sheet h2 { margin: 0; font-size: 22px; letter-spacing: -.045em; }
 .modal-description { margin: 9px 0 18px; color: var(--muted); font-size: 12px; line-height: 1.6; }
 .qr-placeholder { position: relative; width: 146px; height: 146px; display: grid; place-items: center; margin: 0 auto 17px; border: 1px dashed #b6bdb8; border-radius: 12px; background: repeating-linear-gradient(45deg,#f7f8f5,#f7f8f5 5px,#fff 5px,#fff 10px); color: #879089; font-size: 25px; font-weight: 900; }
+.qr-placeholder img { width: 100%; height: 100%; display: block; border-radius: 11px; object-fit: contain; }
 .qr-corner { position: absolute; width: 29px; height: 29px; border: 7px solid var(--ink); }
 .qr-corner.top-left { top: 13px; left: 13px; border-right: 0; border-bottom: 0; }
 .qr-corner.top-right { top: 13px; right: 13px; border-left: 0; border-bottom: 0; }
@@ -299,6 +325,33 @@ button:focus-visible, input:focus-visible { outline: 3px solid rgba(22, 35, 30, 
 .field-label { display: flex; flex-direction: column; gap: 7px; color: #526057; font-size: 11px; font-weight: 750; }
 .field-label input { height: 49px; padding: 0 14px; border: 1px solid #dfe3dc; border-radius: 14px; background: #fafbf8; color: var(--ink); outline: 0; }
 .sheet-submit { width: 100%; height: 50px; margin-top: 13px; border: 0; border-radius: 15px; background: var(--ink); color: #fff; font-weight: 800; cursor: pointer; }
+.sheet-submit:disabled, .room-primary-button:disabled, .friend-add-row button:disabled, .friend-list button:disabled { opacity: .42; cursor: not-allowed; }
+.room-settings-sheet, .friend-invite-sheet { max-height: 88%; overflow-y: auto; }
+.owner-transfer-block { margin-top: 19px; padding-top: 17px; border-top: 1px solid var(--line); }
+.owner-transfer-block > strong { font-size: 12px; }
+.owner-transfer-block > p { margin: 5px 0 12px; color: var(--muted); font-size: 9px; }
+.member-choice-list { display: grid; gap: 7px; }
+.member-choice-list button { display: grid; grid-template-columns: 34px 1fr auto; align-items: center; gap: 9px; padding: 9px 11px; border: 1px solid var(--line); border-radius: 13px; background: transparent; text-align: left; cursor: pointer; }
+.member-choice-list button > span { width: 32px; height: 32px; display: grid; place-items: center; border-radius: 50%; background: #ececea; font-size: 10px; font-weight: 850; }
+.member-choice-list button b { font-size: 11px; }
+.member-choice-list button svg { opacity: 0; }
+.member-choice-list button.selected { border-color: var(--ink); }
+.member-choice-list button.selected svg { opacity: 1; }
+.secondary-submit { border: 1px solid var(--ink); background: transparent; color: var(--ink); }
+.room-danger-actions { display: grid; gap: 8px; margin-top: 19px; padding-top: 17px; border-top: 1px solid var(--line); }
+.room-danger-actions button { min-height: 47px; display: flex; align-items: center; justify-content: center; gap: 7px; border: 0; border-radius: 14px; background: #242423; color: #fff; font-size: 11px; font-weight: 800; cursor: pointer; }
+.room-danger-actions .delete-room-button { background: #a33b36; }
+.friend-add-row { display: grid; grid-template-columns: 1fr auto; gap: 7px; }
+.friend-add-row input { min-width: 0; height: 47px; padding: 0 13px; border: 1px solid var(--line); border-radius: 13px; background: #fafaf8; color: var(--ink); outline: 0; }
+.friend-add-row > button { display: flex; align-items: center; gap: 4px; padding: 0 13px; border: 0; border-radius: 13px; background: var(--ink); color: #fff; font-size: 10px; font-weight: 800; cursor: pointer; }
+.friend-list { display: grid; gap: 7px; margin-top: 17px; }
+.friend-list > div:not(.empty-friend-list) { display: grid; grid-template-columns: 38px 1fr auto; align-items: center; gap: 9px; padding: 9px 10px; border: 1px solid var(--line); border-radius: 14px; }
+.friend-list img { width: 36px; height: 36px; object-fit: cover; border-radius: 50%; }
+.friend-list span { min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.friend-list b { font-size: 11px; }
+.friend-list small { overflow: hidden; color: var(--muted); font-size: 8px; text-overflow: ellipsis; }
+.friend-list button { padding: 7px 10px; border: 0; border-radius: 9px; background: var(--ink); color: #fff; font-size: 9px; font-weight: 800; cursor: pointer; }
+.empty-friend-list { padding: 25px 12px; color: var(--muted); font-size: 10px; text-align: center; }
 .toast { position: absolute; z-index: 80; left: 50%; bottom: 96px; transform: translateX(-50%); padding: 11px 16px; border-radius: 99px; background: var(--ink); color: #fff; font-size: 11px; font-weight: 700; white-space: nowrap; box-shadow: 0 8px 30px rgba(22,35,30,.25); animation: toast-in .2s ease-out; }
 .placeholder-card { display: flex; flex-direction: column; align-items: center; padding: 54px 27px; margin-top: 12px; border: 1px solid var(--line); border-radius: 25px; background: #fff; text-align: center; }
 .placeholder-card > span { width: 60px; height: 60px; display: grid; place-items: center; border-radius: 20px; background: var(--lime); }
@@ -388,6 +441,11 @@ button:focus-visible, input:focus-visible { outline: 3px solid rgba(22, 35, 30, 
 .toggle-switch.on { background: var(--ink); }
 .toggle-switch.on span { transform: translateX(18px); }
 .privacy-card { padding-bottom: 4px; }
+.privacy-coming-soon { display: grid; grid-template-columns: 38px 1fr auto; align-items: center; gap: 10px; min-height: 72px; padding: 12px 14px; opacity: .72; }
+.privacy-coming-soon > span:nth-child(2) { display: flex; flex-direction: column; gap: 3px; }
+.privacy-coming-soon strong { font-size: 12px; }
+.privacy-coming-soon small { color: var(--muted); font-size: 9px; }
+.privacy-coming-soon em { padding: 5px 7px; border-radius: 99px; background: #ececea; color: #777; font-size: 8px; font-style: normal; font-weight: 800; }
 .visibility-selector { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; padding: 8px; border-top: 1px solid var(--line); }
 .visibility-selector button { min-height: 34px; border: 1px solid transparent; border-radius: 10px; background: #f0f0ed; color: #666; font-size: 10px; font-weight: 750; cursor: pointer; }
 .visibility-selector button.selected { border-color: var(--ink); background: var(--ink); color: #fff; }

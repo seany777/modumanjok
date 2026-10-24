@@ -27,7 +27,7 @@ function localRedtableApi(mode) {
         try {
           const upstream = new URL(path, 'https://seoul.openapi.redtable.global')
           upstream.searchParams.set('serviceKey', env.REDTABLE_API_TOKEN)
-          upstream.searchParams.set('pageNo', query.get('pageNo') || '1')
+          upstream.searchParams.set('pageNo', '1')
           const result = await fetch(upstream, { headers: { Accept: 'application/json' } })
           const data = await result.json()
           response.statusCode = result.ok ? 200 : result.status

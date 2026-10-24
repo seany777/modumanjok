@@ -1,7 +1,8 @@
 import React, { useEffect, useRef, useState } from 'react'
 import { createRoot } from 'react-dom/client'
+import QRCode from 'qrcode'
 import { onAuthStateChanged, signInWithPopup, signInWithRedirect, signOut } from 'firebase/auth'
-import { get, ref, serverTimestamp, set, update } from 'firebase/database'
+import { equalTo, get, onValue, orderByChild, query, ref, serverTimestamp, set, update } from 'firebase/database'
 import {
   ArrowLeft,
   AlertTriangle,
@@ -46,44 +47,10 @@ import {
   Trophy,
   UsersRound,
   UtensilsCrossed,
-  WalletCards,
   X,
 } from 'lucide-react'
 import { auth, database, googleProvider } from './firebase'
 import './styles.css'
-
-const initialRooms = [
-  {
-    id: 1,
-    name: '금요일 저녁팟',
-    subtitle: '오늘 18:30 · 학교 정문',
-    members: ['나', '민지', '준호', '수빈', '현우'],
-    status: '의견 모으는 중',
-    color: 'lime',
-  },
-  {
-    id: 2,
-    name: '동아리 회식',
-    subtitle: '10월 29일 · 신촌역',
-    members: ['나', '예은', '도윤', '지후'],
-    status: '투표 중',
-    color: 'coral',
-  },
-  {
-    id: 3,
-    name: '가족 외식',
-    subtitle: '11월 2일 · 연남동',
-    members: ['나', '엄마', '아빠', '동생'],
-    status: '결정 완료',
-    color: 'sky',
-  },
-]
-
-const menuSummary = [
-  { icon: WalletCards, label: '예산', value: '1.5만원 이하', color: 'lime' },
-  { icon: UtensilsCrossed, label: '선호 메뉴', value: '한식 · 일식', color: 'coral' },
-  { icon: UsersRound, label: '참여 인원', value: '5명 중 4명', color: 'sky' },
-]
 
 const aiMenuCandidates = [
   { name: '제육볶음', score: 94, reason: '예산과 한식 선호를 가장 고르게 만족해요' },
@@ -97,6 +64,25 @@ const tournamentMenus = [
   '떡볶이', '햄버거', '파스타', '쌀국수',
   '치킨', '샤브샤브', '카레', '냉면',
 ]
+
+const tournamentMenuImages = {
+  '제육볶음': 'https://images.unsplash.com/photo-1547592180-85f173990554?auto=format&fit=crop&w=640&q=78',
+  '라멘': 'https://images.unsplash.com/photo-1569718212165-3a8278d5f624?auto=format&fit=crop&w=640&q=78',
+  '피자': 'https://images.unsplash.com/photo-1565299624946-b28f40a0ae38?auto=format&fit=crop&w=640&q=78',
+  '마라탕': 'https://images.unsplash.com/photo-1563245372-f21724e3856d?auto=format&fit=crop&w=640&q=78',
+  '김치찌개': 'https://images.unsplash.com/photo-1498654896293-37aacf113fd9?auto=format&fit=crop&w=640&q=78',
+  '비빔밥': 'https://images.unsplash.com/photo-1590301157890-4810ed352733?auto=format&fit=crop&w=640&q=78',
+  '돈까스': 'https://images.unsplash.com/photo-1569058242253-92a9c755a0ec?auto=format&fit=crop&w=640&q=78',
+  '초밥': 'https://images.unsplash.com/photo-1579871494447-9811cf80d66c?auto=format&fit=crop&w=640&q=78',
+  '떡볶이': 'https://images.unsplash.com/photo-1585032226651-759b368d7246?auto=format&fit=crop&w=640&q=78',
+  '햄버거': 'https://images.unsplash.com/photo-1568901346375-23c9450c58cd?auto=format&fit=crop&w=640&q=78',
+  '파스타': 'https://images.unsplash.com/photo-1473093295043-cdd812d0e601?auto=format&fit=crop&w=640&q=78',
+  '쌀국수': 'https://images.unsplash.com/photo-1559314809-0d155014e29e?auto=format&fit=crop&w=640&q=78',
+  '치킨': 'https://images.unsplash.com/photo-1626082927389-6cd097cdc6ec?auto=format&fit=crop&w=640&q=78',
+  '샤브샤브': 'https://images.unsplash.com/photo-1547592166-23ac45744acd?auto=format&fit=crop&w=640&q=78',
+  '카레': 'https://images.unsplash.com/photo-1603894584373-5ac82b2ae398?auto=format&fit=crop&w=640&q=78',
+  '냉면': 'https://images.unsplash.com/photo-1553163147-622ab57be1c7?auto=format&fit=crop&w=640&q=78',
+}
 
 const sampleRestaurants = [
   { id: 1, name: '오늘의 식탁', distance: '320m', rating: 4.8, walk: '도보 5분', address: '학교 정문 앞 1번 골목' },
@@ -128,11 +114,13 @@ function makeApiCandidates(menuItems, restaurantItems, qualityItems) {
   const restaurants = new Map(restaurantItems.map((item) => [String(item.RSTR_ID), item]))
   const qualities = new Map(qualityItems.map((item) => [String(item.RSTR_ID), item]))
   const groups = new Map()
+  const dishKeywords = ['제육', '김치찌개', '비빔밥', '냉면', '치킨', '파스타', '햄버거', '카레', '칼국수', '닭갈비', '갈비', '족발', '보쌈', '국밥', '볶음밥']
+  const excludedKeywords = ['소주', '맥주', '와인', '막걸리', '음료', '콜라', '사이다', '커피', '에이드', '주스', '케이크', '파이']
 
   menuItems.forEach((item) => {
     const name = cleanMenuName(item.MENU_NM)
     const price = Number(item.MENU_PRICE)
-    if (!name || !/[가-힣]/.test(name) || name.length > 18 || !price || price > 30000) return
+    if (!name || !/[가-힣]/.test(name) || name.length > 18 || !price || price > 30000 || excludedKeywords.some((keyword) => name.includes(keyword))) return
     const current = groups.get(name) || { name, prices: [], restaurantIds: new Set() }
     current.prices.push(price)
     current.restaurantIds.add(String(item.RSTR_ID))
@@ -141,7 +129,11 @@ function makeApiCandidates(menuItems, restaurantItems, qualityItems) {
 
   return [...groups.values()]
     .filter((group) => [...group.restaurantIds].some((id) => restaurants.has(id)))
-    .sort((a, b) => b.restaurantIds.size - a.restaurantIds.size || Math.min(...a.prices) - Math.min(...b.prices))
+    .sort((a, b) => {
+      const aDish = dishKeywords.some((keyword) => a.name.includes(keyword)) ? 1 : 0
+      const bDish = dishKeywords.some((keyword) => b.name.includes(keyword)) ? 1 : 0
+      return bDish - aDish || b.restaurantIds.size - a.restaurantIds.size || Math.min(...a.prices) - Math.min(...b.prices)
+    })
     .slice(0, 3)
     .map((group, index) => ({
       name: group.name,
@@ -168,6 +160,36 @@ function makeApiCandidates(menuItems, restaurantItems, qualityItems) {
 }
 
 let naverMapLoader
+let redtableBundleLoader
+const REDTABLE_CACHE_KEY = 'modumanjok-redtable-v1'
+const REDTABLE_CACHE_AGE = 6 * 60 * 60 * 1000
+
+function loadRedtableBundle() {
+  try {
+    const cached = JSON.parse(sessionStorage.getItem(REDTABLE_CACHE_KEY) || 'null')
+    if (cached?.savedAt > Date.now() - REDTABLE_CACHE_AGE && cached?.data) return Promise.resolve(cached.data)
+  } catch {
+    sessionStorage.removeItem(REDTABLE_CACHE_KEY)
+  }
+  if (redtableBundleLoader) return redtableBundleLoader
+  const getResource = (resource) => fetch(`/api/redtable?resource=${resource}`).then((response) => (
+    response.ok ? response.json() : response.json().then((data) => Promise.reject(new Error(data.error)))
+  ))
+  redtableBundleLoader = Promise.all([getResource('menus'), getResource('restaurants'), getResource('quality')])
+    .then((data) => {
+      try {
+        sessionStorage.setItem(REDTABLE_CACHE_KEY, JSON.stringify({ savedAt: Date.now(), data }))
+      } catch {
+        // 저장 공간이 부족하면 메모리 캐시만 사용합니다.
+      }
+      return data
+    })
+    .catch((error) => {
+      redtableBundleLoader = null
+      throw error
+    })
+  return redtableBundleLoader
+}
 
 function loadNaverMaps(keyId) {
   if (window.naver?.maps) return Promise.resolve(window.naver.maps)
@@ -178,7 +200,10 @@ function loadNaverMaps(keyId) {
       delete window[callbackName]
       resolve(window.naver.maps)
     }
-    window.navermap_authFailure = () => reject(new Error('네이버 지도 인증에 실패했습니다.'))
+    window.navermap_authFailure = () => {
+      window.dispatchEvent(new Event('navermap-auth-failure'))
+      reject(new Error('네이버 지도 인증에 실패했습니다.'))
+    }
     const script = document.createElement('script')
     script.src = `https://oapi.map.naver.com/openapi/v3/maps.js?ncpKeyId=${encodeURIComponent(keyId)}&callback=${callbackName}`
     script.async = true
@@ -190,6 +215,8 @@ function loadNaverMaps(keyId) {
 
 function NaverRestaurantMap({ restaurants, selectedRestaurant, userLocation }) {
   const mapElement = useRef(null)
+  const mapInstance = useRef(null)
+  const markerInstances = useRef([])
   const keyId = import.meta.env.VITE_NAVER_MAP_NCP_KEY_ID
   const [mapError, setMapError] = useState('')
 
@@ -197,36 +224,51 @@ function NaverRestaurantMap({ restaurants, selectedRestaurant, userLocation }) {
     const locations = restaurants.filter((restaurant) => Number.isFinite(restaurant.lat) && Number.isFinite(restaurant.lng))
     if (!keyId || !mapElement.current || locations.length === 0) return
     let disposed = false
+    const handleAuthFailure = () => {
+      if (!disposed) setMapError('네이버 지도 인증에 실패했습니다. 콘솔의 Web 서비스 URL을 확인해주세요.')
+    }
+    window.addEventListener('navermap-auth-failure', handleAuthFailure)
 
     loadNaverMaps(keyId).then((maps) => {
       if (disposed || !mapElement.current) return
-      const focus = selectedRestaurant?.lat ? selectedRestaurant : locations[0]
-      const map = new maps.Map(mapElement.current, {
-        center: new maps.LatLng(focus.lat, focus.lng),
-        zoom: 14,
-        zoomControl: true,
-      })
+      const focus = locations[0]
+      const map = mapInstance.current || new maps.Map(mapElement.current, {
+          center: new maps.LatLng(focus.lat, focus.lng),
+          zoom: 14,
+          zoomControl: true,
+        })
+      mapInstance.current = map
+      markerInstances.current.forEach((marker) => marker.setMap(null))
+      markerInstances.current = []
       const bounds = new maps.LatLngBounds()
       locations.forEach((restaurant) => {
         const position = new maps.LatLng(restaurant.lat, restaurant.lng)
         bounds.extend(position)
-        new maps.Marker({ map, position, title: restaurant.name })
+        markerInstances.current.push(new maps.Marker({ map, position, title: restaurant.name }))
       })
       if (userLocation) {
         const position = new maps.LatLng(userLocation.lat, userLocation.lng)
         bounds.extend(position)
-        new maps.Marker({
+        markerInstances.current.push(new maps.Marker({
           map,
           position,
           title: '현재 위치',
           icon: { content: '<div class="current-location-marker"></div>', anchor: new maps.Point(8, 8) },
-        })
+        }))
       }
       if (locations.length > 1 || userLocation) map.fitBounds(bounds, { top: 30, right: 30, bottom: 30, left: 30 })
     }).catch((error) => setMapError(error.message))
 
-    return () => { disposed = true }
-  }, [keyId, restaurants, selectedRestaurant, userLocation])
+    return () => {
+      disposed = true
+      window.removeEventListener('navermap-auth-failure', handleAuthFailure)
+    }
+  }, [keyId, restaurants, userLocation])
+
+  useEffect(() => {
+    if (!selectedRestaurant?.lat || !selectedRestaurant?.lng || !mapInstance.current || !window.naver?.maps) return
+    mapInstance.current.panTo(new window.naver.maps.LatLng(selectedRestaurant.lat, selectedRestaurant.lng))
+  }, [selectedRestaurant])
 
   if (!keyId) return <div className="map-placeholder"><MapPin size={22} /><span>네이버 지도 키를 연결하면 여기에 지도가 표시돼요.</span></div>
   if (mapError) return <div className="map-placeholder error"><AlertTriangle size={22} /><span>{mapError}</span></div>
@@ -252,18 +294,38 @@ const defaultUserProfile = {
 
 const PROFILE_DATA_VERSION = 2
 
+const roomColors = ['lime', 'coral', 'sky']
+
+const createInviteCode = () => Math.random().toString(36).slice(2, 8).toUpperCase()
+
+const normalizeRoom = (id, room) => {
+  const memberRecords = room?.members || {}
+  return {
+    id,
+    ...room,
+    color: room?.color || roomColors[Math.abs(String(id).length) % roomColors.length],
+    members: Object.values(memberRecords).map((member) => member.name || '참여자'),
+    memberRecords,
+  }
+}
+
 function App() {
   const [authUser, setAuthUser] = useState(undefined)
   const [authBusy, setAuthBusy] = useState(true)
+  const [roomsLoading, setRoomsLoading] = useState(true)
   const [authError, setAuthError] = useState('')
   const [activeTab, setActiveTab] = useState('home')
-  const [rooms, setRooms] = useState(initialRooms)
+  const [rooms, setRooms] = useState([])
+  const [friends, setFriends] = useState([])
   const [selectedRoom, setSelectedRoom] = useState(null)
+  const [requestedRoomId, setRequestedRoomId] = useState('')
   const [shareRoom, setShareRoom] = useState(null)
   const [sheet, setSheet] = useState(null)
   const [toast, setToast] = useState('')
   const [settingsOpen, setSettingsOpen] = useState(false)
   const [profileSheet, setProfileSheet] = useState(null)
+  const [friendSheetRoom, setFriendSheetRoom] = useState(null)
+  const [pendingJoinCode, setPendingJoinCode] = useState('')
   const [appSettings, setAppSettings] = useState({
     theme: 'system',
     voteNotifications: true,
@@ -271,11 +333,81 @@ function App() {
   })
   const [userProfile, setUserProfile] = useState(defaultUserProfile)
 
+  const applyRoute = (pathname = window.location.pathname, search = window.location.search) => {
+    const roomMatch = pathname.match(/^\/rooms\/([^/]+)$/)
+    const joinMatch = pathname.match(/^\/join\/([^/]+)$/)
+    const queryCode = new URLSearchParams(search).get('join')
+    if (joinMatch || queryCode) {
+      setPendingJoinCode(decodeURIComponent(joinMatch?.[1] || queryCode).toUpperCase())
+      setSelectedRoom(null)
+      setRequestedRoomId('')
+      setSettingsOpen(false)
+      setActiveTab('rooms')
+      setSheet('join')
+      return
+    }
+    setSheet(null)
+    if (roomMatch) {
+      setRequestedRoomId(decodeURIComponent(roomMatch[1]))
+      setSettingsOpen(false)
+      setActiveTab('rooms')
+      return
+    }
+    setRequestedRoomId('')
+    setSelectedRoom(null)
+    if (pathname === '/community') {
+      setActiveTab('community')
+      setSettingsOpen(false)
+    } else if (pathname === '/profile') {
+      setActiveTab('profile')
+      setSettingsOpen(false)
+    } else if (pathname === '/settings') {
+      setActiveTab('profile')
+      setSettingsOpen(true)
+    } else if (pathname === '/rooms') {
+      setActiveTab('rooms')
+      setSettingsOpen(false)
+    } else {
+      setActiveTab('home')
+      setSettingsOpen(false)
+    }
+  }
+
+  const navigateTo = (path, { replace = false } = {}) => {
+    window.history[replace ? 'replaceState' : 'pushState']({}, '', path)
+    applyRoute(path, '')
+  }
+
+  const openRoom = (room, { replace = false } = {}) => {
+    window.history[replace ? 'replaceState' : 'pushState']({}, '', `/rooms/${encodeURIComponent(room.id)}`)
+    setRequestedRoomId(room.id)
+    setSelectedRoom(room)
+    setActiveTab('rooms')
+  }
+
   useEffect(() => {
     if (!toast) return
     const timer = setTimeout(() => setToast(''), 1800)
     return () => clearTimeout(timer)
   }, [toast])
+
+  useEffect(() => {
+    if (!authUser) return undefined
+    applyRoute()
+    const handlePopState = () => applyRoute()
+    window.addEventListener('popstate', handlePopState)
+    return () => window.removeEventListener('popstate', handlePopState)
+  }, [authUser])
+
+  useEffect(() => {
+    if (!authUser || !userProfile.name) return
+    update(ref(database, `userDirectory/${authUser.uid}`), {
+      name: userProfile.name,
+      email: authUser.email?.toLowerCase() || '',
+      image: userProfile.image || '/assets/default-profile.svg',
+      updatedAt: serverTimestamp(),
+    }).catch((error) => console.error('User directory sync failed:', error))
+  }, [authUser, userProfile.name, userProfile.image])
 
   useEffect(() => {
     const media = window.matchMedia('(prefers-color-scheme: dark)')
@@ -357,6 +489,59 @@ function App() {
     }
   }), [])
 
+  useEffect(() => {
+    if (!authUser) {
+      setRooms([])
+      setFriends([])
+      setRoomsLoading(false)
+      return undefined
+    }
+
+    setRoomsLoading(true)
+    const unsubscribeRooms = onValue(ref(database, 'rooms'), (snapshot) => {
+      try {
+        const nextRooms = Object.entries(snapshot.val() || {})
+          .filter(([, room]) => Boolean(room.members?.[authUser.uid]))
+          .map(([roomId, room]) => normalizeRoom(roomId, room))
+          .sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0))
+        setRooms(nextRooms)
+      } catch (error) {
+        console.error('Room sync failed:', error)
+        setToast('방 목록을 불러오지 못했어요')
+      } finally {
+        setRoomsLoading(false)
+      }
+    })
+
+    const unsubscribeFriends = onValue(ref(database, `friends/${authUser.uid}`), (snapshot) => {
+      setFriends(Object.entries(snapshot.val() || {}).map(([uid, friend]) => ({ uid, ...friend })))
+    })
+
+    return () => {
+      unsubscribeRooms()
+      unsubscribeFriends()
+    }
+  }, [authUser])
+
+  useEffect(() => {
+    if (!selectedRoom) return
+    const current = rooms.find((room) => room.id === selectedRoom.id)
+    if (current) setSelectedRoom(current)
+  }, [rooms, selectedRoom?.id])
+
+  useEffect(() => {
+    if (!requestedRoomId || !rooms.length) return
+    const requestedRoom = rooms.find((room) => room.id === requestedRoomId)
+    if (requestedRoom) setSelectedRoom(requestedRoom)
+    else navigateTo('/rooms', { replace: true })
+  }, [rooms, requestedRoomId])
+
+  useEffect(() => {
+    if (!friendSheetRoom) return
+    const current = rooms.find((room) => room.id === friendSheetRoom.id)
+    if (current) setFriendSheetRoom(current)
+  }, [rooms, friendSheetRoom?.id])
+
   const loginWithGoogle = async () => {
     setAuthBusy(true)
     setAuthError('')
@@ -381,6 +566,7 @@ function App() {
   const logout = async () => {
     try {
       await signOut(auth)
+      window.history.replaceState({}, '', '/')
       setActiveTab('home')
       setSettingsOpen(false)
       setSelectedRoom(null)
@@ -414,32 +600,192 @@ function App() {
     }
   }
 
-  const addRoom = (name) => {
-    const newRoom = {
-      id: Date.now(),
-      name: name || '새로운 모임',
+  const addRoom = async (name) => {
+    if (!authUser) return
+    const roomId = crypto.randomUUID()
+    const code = createInviteCode()
+    const roomData = {
+      name: name.trim() || '새로운 모임',
+      code,
+      ownerId: authUser.uid,
+      ownerName: userProfile.name,
       subtitle: '일정 미정 · 장소 미정',
-      members: ['나'],
       status: '방금 생성',
-      color: 'lime',
+      color: roomColors[rooms.length % roomColors.length],
+      createdAt: Date.now(),
+      members: {
+        [authUser.uid]: {
+          name: userProfile.name,
+          email: authUser.email || '',
+          image: userProfile.image,
+          role: 'owner',
+          joinedAt: Date.now(),
+        },
+      },
     }
-    setRooms((current) => [newRoom, ...current])
-    setSheet(null)
-    setToast('새 방을 만들었어요')
+    try {
+      await update(ref(database), {
+        [`rooms/${roomId}`]: roomData,
+        [`userRooms/${authUser.uid}/${roomId}`]: true,
+      })
+      setSheet(null)
+      openRoom(normalizeRoom(roomId, roomData))
+      setToast('새 방을 만들었어요')
+    } catch (error) {
+      console.error('Room create failed:', error)
+      setToast('방 생성에 실패했어요. DB 규칙을 확인해주세요')
+    }
   }
 
-  const joinRoom = () => {
-    const joinedRoom = {
-      id: Date.now(),
-      name: '코드로 참여한 모임',
-      subtitle: '일정 확인 중 · 장소 미정',
-      members: ['방장', '나'],
-      status: '방금 참여',
-      color: 'sky',
+  const joinRoom = async (rawCode) => {
+    if (!authUser) return
+    const code = rawCode.trim().replace(/[<>\s]/g, '').toUpperCase()
+    if (!code) {
+      setToast('초대 코드를 입력해주세요')
+      return
     }
-    setRooms((current) => [joinedRoom, ...current])
-    setSheet(null)
-    setToast('방에 참여했어요')
+    try {
+      const snapshot = await get(query(ref(database, 'rooms'), orderByChild('code'), equalTo(code)))
+      if (!snapshot.exists()) {
+        setToast('해당 초대 코드의 방을 찾지 못했어요')
+        return
+      }
+      const [roomId, roomData] = Object.entries(snapshot.val())[0]
+      await update(ref(database), {
+        [`rooms/${roomId}/members/${authUser.uid}`]: {
+          name: userProfile.name,
+          email: authUser.email || '',
+          image: userProfile.image,
+          role: roomData.ownerId === authUser.uid ? 'owner' : 'member',
+          joinedAt: Date.now(),
+        },
+        [`userRooms/${authUser.uid}/${roomId}`]: true,
+      })
+      setSheet(null)
+      setPendingJoinCode('')
+      openRoom(normalizeRoom(roomId, {
+        ...roomData,
+        members: {
+          ...(roomData.members || {}),
+          [authUser.uid]: { name: userProfile.name, email: authUser.email || '', role: 'member' },
+        },
+      }), { replace: window.location.pathname.startsWith('/join/') })
+      setToast('방에 참여했어요')
+    } catch (error) {
+      console.error('Room join failed:', error)
+      setToast('방 접속에 실패했어요. DB 규칙을 확인해주세요')
+    }
+  }
+
+  const deleteRoom = async (room) => {
+    const memberIds = Object.keys(room.memberRecords || {})
+    const changes = { [`rooms/${room.id}`]: null }
+    memberIds.forEach((uid) => { changes[`userRooms/${uid}/${room.id}`] = null })
+    try {
+      await update(ref(database), changes)
+      window.history.replaceState({}, '', '/rooms')
+      setSelectedRoom(null)
+      setActiveTab('rooms')
+      setToast('방을 종료하고 삭제했어요')
+    } catch (error) {
+      console.error('Room delete failed:', error)
+      setToast('방 삭제에 실패했어요')
+      throw error
+    }
+  }
+
+  const leaveRoom = async (room, nextOwnerId = null) => {
+    if (!authUser) return
+    const changes = {
+      [`rooms/${room.id}/members/${authUser.uid}`]: null,
+      [`userRooms/${authUser.uid}/${room.id}`]: null,
+    }
+    if (room.ownerId === authUser.uid && nextOwnerId) {
+      changes[`rooms/${room.id}/ownerId`] = nextOwnerId
+      changes[`rooms/${room.id}/ownerName`] = room.memberRecords[nextOwnerId]?.name || '새 방장'
+      changes[`rooms/${room.id}/members/${nextOwnerId}/role`] = 'owner'
+    }
+    try {
+      await update(ref(database), changes)
+      window.history.replaceState({}, '', '/rooms')
+      setSelectedRoom(null)
+      setActiveTab('rooms')
+      setToast(nextOwnerId ? '방장을 양도하고 나왔어요' : '방에서 나왔어요')
+    } catch (error) {
+      console.error('Room leave failed:', error)
+      setToast('방 나가기에 실패했어요')
+      throw error
+    }
+  }
+
+  const transferOwner = async (room, nextOwnerId) => {
+    if (!authUser || room.ownerId !== authUser.uid) return
+    try {
+      await update(ref(database), {
+        [`rooms/${room.id}/ownerId`]: nextOwnerId,
+        [`rooms/${room.id}/ownerName`]: room.memberRecords[nextOwnerId]?.name || '새 방장',
+        [`rooms/${room.id}/members/${authUser.uid}/role`]: 'member',
+        [`rooms/${room.id}/members/${nextOwnerId}/role`]: 'owner',
+      })
+      setToast('방장을 양도했어요')
+    } catch (error) {
+      console.error('Owner transfer failed:', error)
+      setToast('방장 양도에 실패했어요')
+      throw error
+    }
+  }
+
+  const addFriend = async (email) => {
+    if (!authUser) return false
+    const normalizedEmail = email.trim().toLowerCase()
+    if (!normalizedEmail || normalizedEmail === authUser.email?.toLowerCase()) {
+      setToast('다른 사용자의 이메일을 입력해주세요')
+      return false
+    }
+    try {
+      const snapshot = await get(query(ref(database, 'userDirectory'), orderByChild('email'), equalTo(normalizedEmail)))
+      if (!snapshot.exists()) {
+        setToast('해당 이메일로 가입한 사용자를 찾지 못했어요')
+        return false
+      }
+      const [friendUid, friend] = Object.entries(snapshot.val())[0]
+      await set(ref(database, `friends/${authUser.uid}/${friendUid}`), {
+        name: friend.name || normalizedEmail.split('@')[0],
+        email: friend.email || normalizedEmail,
+        image: friend.image || '/assets/default-profile.svg',
+        addedAt: Date.now(),
+      })
+      setToast('친구를 추가했어요')
+      return true
+    } catch (error) {
+      console.error('Friend add failed:', error)
+      setToast('친구 추가에 실패했어요')
+      return false
+    }
+  }
+
+  const inviteFriend = async (room, friend) => {
+    if (!authUser || room.ownerId !== authUser.uid) return
+    if (room.memberRecords?.[friend.uid]) {
+      setToast('이미 방에 참여 중인 친구예요')
+      return
+    }
+    try {
+      await update(ref(database), {
+        [`rooms/${room.id}/members/${friend.uid}`]: {
+          name: friend.name,
+          email: friend.email || '',
+          image: friend.image || '/assets/default-profile.svg',
+          role: 'member',
+          joinedAt: Date.now(),
+        },
+        [`userRooms/${friend.uid}/${room.id}`]: true,
+      })
+      setToast(`${friend.name}님을 방에 초대했어요`)
+    } catch (error) {
+      console.error('Friend invite failed:', error)
+      setToast('친구 초대에 실패했어요')
+    }
   }
 
   if (authUser === undefined) {
@@ -463,16 +809,25 @@ function App() {
       <AppFrame>
         <RoomDetail
           room={selectedRoom}
-          onBack={() => setSelectedRoom(null)}
+          currentUser={authUser}
+          friends={friends}
+          onBack={() => navigateTo('/rooms')}
           onShare={() => setShareRoom(selectedRoom)}
-          onDelete={() => {
-            setRooms((current) => current.filter((item) => item.id !== selectedRoom.id))
-            setSelectedRoom(null)
-            setActiveTab('rooms')
-            setToast('방을 종료하고 삭제했어요')
-          }}
+          onDelete={() => deleteRoom(selectedRoom)}
+          onLeave={(nextOwnerId) => leaveRoom(selectedRoom, nextOwnerId)}
+          onTransfer={(nextOwnerId) => transferOwner(selectedRoom, nextOwnerId)}
+          onOpenFriends={() => setFriendSheetRoom(selectedRoom)}
         />
         {shareRoom && <ShareModal room={shareRoom} onClose={() => setShareRoom(null)} onToast={setToast} />}
+        {friendSheetRoom && (
+          <FriendInviteSheet
+            room={friendSheetRoom}
+            friends={friends}
+            onClose={() => setFriendSheetRoom(null)}
+            onAddFriend={addFriend}
+            onInvite={(friend) => inviteFriend(friendSheetRoom, friend)}
+          />
+        )}
         {toast && <Toast>{toast}</Toast>}
       </AppFrame>
     )
@@ -484,16 +839,17 @@ function App() {
         {activeTab === 'home' && (
           <HomeScreen
             rooms={rooms}
-            onOpenRoom={setSelectedRoom}
-            onGoRooms={() => setActiveTab('rooms')}
+            onOpenRoom={openRoom}
+            onGoRooms={() => navigateTo('/rooms')}
             onOpenCreate={() => setSheet('create')}
           />
         )}
         {activeTab === 'rooms' && (
           <RoomsScreen
             rooms={rooms}
+            loading={roomsLoading}
             profileName={userProfile.name}
-            onOpenRoom={setSelectedRoom}
+            onOpenRoom={openRoom}
             onShareRoom={setShareRoom}
             onCreate={() => setSheet('create')}
             onJoin={() => setSheet('join')}
@@ -504,7 +860,7 @@ function App() {
           <SettingsScreen
             profile={userProfile}
             settings={appSettings}
-            onBack={() => setSettingsOpen(false)}
+            onBack={() => navigateTo('/profile')}
             onChange={(key, value) => setAppSettings((current) => ({ ...current, [key]: value }))}
             onAction={setToast}
             onLogout={logout}
@@ -512,7 +868,7 @@ function App() {
         ) : (
           <ProfileScreen
             profile={userProfile}
-            onOpenSettings={() => setSettingsOpen(true)}
+            onOpenSettings={() => navigateTo('/settings')}
             onEditProfile={() => setProfileSheet('profile')}
             onEditTaste={() => setProfileSheet('taste')}
           />
@@ -522,15 +878,18 @@ function App() {
       <BottomNav
         active={activeTab}
         onChange={(nextTab) => {
-          setActiveTab(nextTab)
-          if (nextTab !== 'profile') setSettingsOpen(false)
+          navigateTo({ home: '/', rooms: '/rooms', community: '/community', profile: '/profile' }[nextTab])
         }}
       />
       {shareRoom && <ShareModal room={shareRoom} onClose={() => setShareRoom(null)} onToast={setToast} />}
       {sheet && (
         <ActionSheet
           type={sheet}
-          onClose={() => setSheet(null)}
+          initialCode={pendingJoinCode}
+          onClose={() => {
+            setSheet(null)
+            if (window.location.pathname.startsWith('/join/')) navigateTo('/rooms', { replace: true })
+          }}
           onCreate={addRoom}
           onJoin={joinRoom}
         />
@@ -624,19 +983,7 @@ function HomeScreen({ rooms, onOpenRoom, onGoRooms, onOpenCreate }) {
   return (
     <>
       <Header eyebrow="반가워요 👋" title="오늘은 뭐 먹을까요?" />
-      <section className="hero-card">
-        <div className="hero-copy">
-          <span className="pill light"><Sparkles size={13} /> 함께 정하면 더 쉬워요</span>
-          <h2>모두의 취향을 모아<br />딱 맞는 메뉴 찾기</h2>
-          <p>방을 만들고 친구들을 초대해보세요.</p>
-          <button type="button" className="dark-button" onClick={onOpenCreate}>새 모임 시작하기 <ChevronRight size={17} /></button>
-        </div>
-        <div className="hero-visual" aria-hidden="true">
-          <div className="plate"><UtensilsCrossed size={48} /></div>
-          <span className="food-orbit orbit-one"><Coffee size={22} /></span>
-          <span className="food-orbit orbit-two"><UsersRound size={22} /></span>
-        </div>
-      </section>
+      <HomeAdCarousel onOpenCreate={onOpenCreate} />
 
       <section className="section-block">
         <div className="section-heading">
@@ -646,22 +993,21 @@ function HomeScreen({ rooms, onOpenRoom, onGoRooms, onOpenCreate }) {
           </div>
           <button type="button" className="text-button" onClick={onGoRooms}>전체보기 <ChevronRight size={16} /></button>
         </div>
-        <button type="button" className="recent-room" onClick={() => onOpenRoom(recentRoom)}>
-          <div className="recent-top">
-            <div>
-              <h3>{recentRoom.name}</h3>
+        {recentRoom ? (
+          <button type="button" className="recent-room" onClick={() => onOpenRoom(recentRoom)}>
+            <div className="recent-top">
+              <div><h3>{recentRoom.name}</h3><small>방 이어가기</small></div>
+              <div className="round-arrow"><ChevronRight size={21} /></div>
             </div>
-            <div className="round-arrow"><ChevronRight size={21} /></div>
-          </div>
-          <div className="summary-grid">
-            {menuSummary.map(({ icon: Icon, label, value, color }) => (
-              <div className="summary-item" key={label}>
-                <span className={`summary-icon ${color}`}><Icon size={18} /></span>
-                <span><small>{label}</small><strong>{value}</strong></span>
-              </div>
-            ))}
-          </div>
-        </button>
+            <div className="summary-grid">
+              <div className="summary-item"><span className="summary-icon lime"><UsersRound size={18} /></span><span><small>참여 인원</small><strong>{recentRoom.members.length}명</strong></span></div>
+              <div className="summary-item"><span className="summary-icon coral"><QrCode size={18} /></span><span><small>초대 코드</small><strong>{recentRoom.code}</strong></span></div>
+              <div className="summary-item"><span className="summary-icon sky"><Play size={18} /></span><span><small>진행 상태</small><strong>처음부터</strong></span></div>
+            </div>
+          </button>
+        ) : (
+          <button type="button" className="recent-room empty-recent-room" onClick={onOpenCreate}><Plus size={22} /><span><b>참여 중인 방이 없어요</b><small>새 모임을 만들어 시작해보세요.</small></span></button>
+        )}
       </section>
 
       <section className="section-block compact">
@@ -681,7 +1027,46 @@ function HomeScreen({ rooms, onOpenRoom, onGoRooms, onOpenCreate }) {
   )
 }
 
-function RoomsScreen({ rooms, profileName, onOpenRoom, onShareRoom, onCreate, onJoin }) {
+function HomeAdCarousel({ onOpenCreate }) {
+  const ads = [
+    { label: 'AD · 모두만족 PICK', title: '오늘 첫 모임은\n배달비 3,000원 할인', copy: '가상의 프로모션 광고입니다.', action: '쿠폰 보기', tone: 'ad-dark' },
+    { label: 'AD · CAMPUS', title: '학교 앞 인기 메뉴\n점심 세트 모아보기', copy: '학생 모임을 위한 가상 광고', action: '둘러보기', tone: 'ad-light' },
+    { label: '모두만족', title: '친구를 모으고\n메뉴를 바로 정해요', copy: '방을 만들고 초대 코드를 공유하세요.', action: '새 모임 시작', tone: 'ad-accent' },
+  ]
+  const scroller = useRef(null)
+  const [activeAd, setActiveAd] = useState(0)
+
+  useEffect(() => {
+    const timer = setInterval(() => {
+      setActiveAd((current) => {
+        const next = (current + 1) % ads.length
+        scroller.current?.scrollTo({ left: scroller.current.clientWidth * next, behavior: 'smooth' })
+        return next
+      })
+    }, 4500)
+    return () => clearInterval(timer)
+  }, [ads.length])
+
+  return (
+    <section className="home-ad-wrap" aria-label="프로모션">
+      <div
+        ref={scroller}
+        className="home-ad-carousel"
+        onScroll={(event) => setActiveAd(Math.round(event.currentTarget.scrollLeft / event.currentTarget.clientWidth))}
+      >
+        {ads.map((ad, index) => (
+          <article className={`home-ad-card ${ad.tone}`} key={ad.title}>
+            <span>{ad.label}</span><h2>{ad.title.split('\n').map((line) => <React.Fragment key={line}>{line}<br /></React.Fragment>)}</h2><p>{ad.copy}</p>
+            <button type="button" onClick={index === 2 ? onOpenCreate : () => {}}>{ad.action}</button>
+          </article>
+        ))}
+      </div>
+      <div className="ad-dots">{ads.map((ad, index) => <span key={ad.title} className={activeAd === index ? 'active' : ''} />)}</div>
+    </section>
+  )
+}
+
+function RoomsScreen({ rooms, loading, profileName, onOpenRoom, onShareRoom, onCreate, onJoin }) {
   const [query, setQuery] = useState('')
   const filtered = rooms.filter((room) => room.name.includes(query))
   return (
@@ -691,7 +1076,6 @@ function RoomsScreen({ rooms, profileName, onOpenRoom, onShareRoom, onCreate, on
         <div className="room-account-bar" aria-label="방 바로가기">
           <button type="button" className="profile-name-button" aria-label={`${profileName} 계정 메뉴`}>
             <span>{profileName}</span>
-            <ChevronDown size={18} strokeWidth={2.2} />
           </button>
           <div className="room-account-actions">
             <button type="button" className="room-action-button" onClick={onCreate} aria-label="방 생성" data-tooltip="방 생성">
@@ -717,7 +1101,7 @@ function RoomsScreen({ rooms, profileName, onOpenRoom, onShareRoom, onCreate, on
             <RoomCard key={room.id} room={room} onOpen={() => onOpenRoom(room)} onLongPress={() => onShareRoom(room)} />
           ))}
         </section>
-        {filtered.length === 0 && <div className="empty-state"><Search size={28} /><p>검색한 방이 없어요.</p></div>}
+        {filtered.length === 0 && <div className="empty-state"><Search size={28} /><p>{loading ? '방 목록을 불러오는 중이에요.' : query ? '검색한 방이 없어요.' : '참여 중인 방이 없어요.'}</p></div>}
       </div>
     </div>
   )
@@ -768,7 +1152,7 @@ function RoomCard({ room, onOpen, onLongPress }) {
   )
 }
 
-function RoomDetail({ room, onBack, onShare, onDelete }) {
+function RoomDetail({ room, currentUser, friends, onBack, onShare, onDelete, onLeave, onTransfer, onOpenFriends }) {
   const pageRef = useRef(null)
   const [stage, setStage] = useState(0)
   const [mode, setMode] = useState('ai')
@@ -784,12 +1168,15 @@ function RoomDetail({ room, onBack, onShare, onDelete }) {
   const [selectedRestaurant, setSelectedRestaurant] = useState(null)
   const [expandedRestaurant, setExpandedRestaurant] = useState(null)
   const [confirmDelete, setConfirmDelete] = useState(false)
+  const [roomSettingsOpen, setRoomSettingsOpen] = useState(false)
   const [pullBack, setPullBack] = useState({ distance: 0, armed: false })
   const pullStartY = useRef(null)
   const pullEligible = useRef(false)
   const pullArmed = useRef(false)
   const previousStage = useRef(stage)
   const transitionDirection = stage >= previousStage.current ? 'forward' : 'backward'
+  const isOwner = room.ownerId === currentUser.uid
+  const memberEntries = Object.entries(room.memberRecords || {})
 
   useEffect(() => {
     pageRef.current?.scrollTo({ top: 0, behavior: 'auto' })
@@ -797,14 +1184,9 @@ function RoomDetail({ room, onBack, onShare, onDelete }) {
   }, [stage])
 
   useEffect(() => {
-    if (stage !== 2 || mode !== 'ai' || menuApiStatus !== 'idle') return
     let cancelled = false
     setMenuApiStatus('loading')
-    Promise.all([
-      fetch('/api/redtable?resource=menus&pageNo=1').then((response) => response.ok ? response.json() : response.json().then((data) => Promise.reject(new Error(data.error)))),
-      fetch('/api/redtable?resource=restaurants&pageNo=1').then((response) => response.ok ? response.json() : response.json().then((data) => Promise.reject(new Error(data.error)))),
-      fetch('/api/redtable?resource=quality&pageNo=1').then((response) => response.ok ? response.json() : response.json().then((data) => Promise.reject(new Error(data.error)))),
-    ]).then(([menus, restaurants, quality]) => {
+    loadRedtableBundle().then(([menus, restaurants, quality]) => {
       if (cancelled) return
       const candidates = makeApiCandidates(menus.items, restaurants.items, quality.items)
       if (!candidates.length) throw new Error('조건에 맞는 메뉴를 찾지 못했습니다.')
@@ -817,7 +1199,7 @@ function RoomDetail({ room, onBack, onShare, onDelete }) {
       setMenuApiMessage(error.message || 'API 연결을 확인해주세요.')
     })
     return () => { cancelled = true }
-  }, [stage, mode, menuApiStatus])
+  }, [])
 
   useEffect(() => {
     if (stage !== 3 || !navigator.geolocation) return
@@ -928,7 +1310,7 @@ function RoomDetail({ room, onBack, onShare, onDelete }) {
           onBack={onBack}
           eyebrow="ROOM LOBBY"
           title={room.name}
-          action={<button type="button" className="icon-button" onClick={onShare} aria-label="초대 정보"><QrCode size={21} /></button>}
+          action={<button type="button" className="icon-button" onClick={() => setRoomSettingsOpen(true)} aria-label="방 설정"><Settings size={21} /></button>}
         />
         <div className={`room-stage-motion ${transitionDirection}`}>
           <section className="room-lobby-hero">
@@ -936,21 +1318,25 @@ function RoomDetail({ room, onBack, onShare, onDelete }) {
             <h2>모두 모이면<br />메뉴 결정을 시작해요</h2>
             <p>{room.subtitle}</p>
             <div className="lobby-member-grid">
-              {room.members.map((member, index) => (
-                <div key={member}>
-                  <span>{member.slice(0, 1)}</span>
-                  <strong>{member}</strong>
-                  {index === 0 ? <small><Crown size={11} /> 방장</small> : <small><CheckCircle2 size={11} /> 참여 완료</small>}
+              {memberEntries.map(([uid, member]) => (
+                <div key={uid}>
+                  <span>{member.name?.slice(0, 1) || '?'}</span>
+                  <strong>{member.name || '참여자'}</strong>
+                  {uid === room.ownerId ? <small><Crown size={11} /> 방장</small> : <small><CheckCircle2 size={11} /> 참여 완료</small>}
                 </div>
               ))}
             </div>
           </section>
           <section className="lobby-ready-card">
             <div><UsersRound size={20} /><span><strong>{room.members.length}명 모두 참여했어요</strong><small>방장이 시작하면 1단계로 이동합니다.</small></span></div>
-            <button type="button" className="room-primary-button" onClick={() => setStage(1)}><Play size={18} fill="currentColor" /> 시작하기</button>
+            <button type="button" className="room-primary-button" disabled={!isOwner} onClick={() => setStage(1)}><Play size={18} fill="currentColor" /> {isOwner ? '시작하기' : '방장이 시작하기를 기다리는 중'}</button>
           </section>
-          <button type="button" className="share-wide secondary-share" onClick={onShare}><QrCode size={19} /> 초대 코드 다시 보기</button>
+          <div className="lobby-invite-actions">
+            <button type="button" className="share-wide secondary-share" onClick={onShare}><QrCode size={19} /> 초대 코드 보기</button>
+            {isOwner && <button type="button" className="share-wide secondary-share" onClick={onOpenFriends}><UsersRound size={19} /> 친구 바로 초대</button>}
+          </div>
         </div>
+        {roomSettingsOpen && <RoomSettingsModal room={room} currentUser={currentUser} onClose={() => setRoomSettingsOpen(false)} onLeave={onLeave} onDelete={onDelete} onTransfer={onTransfer} />}
       </main>
     )
   }
@@ -969,7 +1355,7 @@ function RoomDetail({ room, onBack, onShare, onDelete }) {
         onBack={onBack}
         eyebrow={`STEP ${stage} OF 4`}
         title={stageTitles[stage]}
-        action={<button type="button" className="icon-button" onClick={onShare} aria-label="초대 정보"><QrCode size={21} /></button>}
+        action={<button type="button" className="icon-button" onClick={() => setRoomSettingsOpen(true)} aria-label="방 설정"><Settings size={21} /></button>}
       />
 
       <div key={stage} className={`room-stage-motion ${transitionDirection}`}>
@@ -1009,7 +1395,7 @@ function RoomDetail({ room, onBack, onShare, onDelete }) {
             {menuApiStatus === 'ready' ? <CheckCircle2 size={14} /> : menuApiStatus === 'fallback' ? <AlertTriangle size={14} /> : <Info size={14} />}
             {menuApiStatus === 'ready' ? '서울관광재단 음식·식당 데이터가 적용됐어요.' : menuApiStatus === 'fallback' ? `${menuApiMessage} 예시 메뉴를 표시합니다.` : '연결 전에는 예시 추천이 표시됩니다.'}
           </p>
-          <button type="button" className="room-primary-button stage-next" onClick={() => setStage(3)} disabled={!selectedMenu}>{selectedMenu}으로 결정 <ChevronRight size={18} /></button>
+          <button type="button" className="room-primary-button stage-next" onClick={() => setStage(3)} disabled={!selectedMenu || menuApiStatus === 'loading'}>{menuApiStatus === 'loading' ? '실제 메뉴 불러오는 중' : `${selectedMenu}으로 결정`} <ChevronRight size={18} /></button>
         </section>
       )}
 
@@ -1020,7 +1406,12 @@ function RoomDetail({ room, onBack, onShare, onDelete }) {
               <div className="tournament-head"><span>{tournamentRoundLabel}</span><strong>{tournamentMatchIndex + 1}/{tournamentMatchCount}</strong></div>
               <h2>더 먹고 싶은 메뉴를 골라주세요</h2>
               <div className="tournament-pair">
-                {tournamentPair.map((menu) => <button key={menu} type="button" onClick={() => pickTournamentMenu(menu)}><UtensilsCrossed size={28} /><strong>{menu}</strong><small>선택하기</small></button>)}
+                {tournamentPair.map((menu) => (
+                  <button key={menu} type="button" onClick={() => pickTournamentMenu(menu)}>
+                    <span className="tournament-food-image" style={{ backgroundImage: `url(${tournamentMenuImages[menu]})` }} role="img" aria-label={`${menu} 예시 사진`} />
+                    <strong>{menu}</strong><small>선택하기</small>
+                  </button>
+                ))}
               </div>
               <p className="prototype-note"><UsersRound size={14} /> 다른 멤버의 선택은 예시 점수로 합산됩니다.</p>
             </>
@@ -1099,6 +1490,7 @@ function RoomDetail({ room, onBack, onShare, onDelete }) {
         </div>
       )}
       <button type="button" className="room-undo-button" onClick={undoStage} aria-label="이전 단계로 돌아가기"><RotateCcw size={17} /> 실행 취소</button>
+      {roomSettingsOpen && <RoomSettingsModal room={room} currentUser={currentUser} onClose={() => setRoomSettingsOpen(false)} onLeave={onLeave} onDelete={onDelete} onTransfer={onTransfer} />}
     </main>
   )
 }
@@ -1203,15 +1595,10 @@ function SettingsScreen({ settings, onBack, onChange, onAction, onLogout }) {
 
       <section className="settings-section">
         <div className="settings-section-title"><span>PRIVACY</span><h2>개인정보 설정</h2></div>
-        <div className="privacy-card">
-          <div className="setting-row-static"><span className="setting-leading"><Lock size={18} /></span><span><strong>프로필 공개 범위</strong><small>내 프로필을 볼 수 있는 사람</small></span></div>
-          <div className="visibility-selector">
-            {[
-              ['public', '전체'],
-              ['friends', '모임원'],
-              ['private', '비공개'],
-            ].map(([value, label]) => <button key={value} type="button" className={settings.profileVisibility === value ? 'selected' : ''} onClick={() => onChange('profileVisibility', value)}>{label}</button>)}
-          </div>
+        <div className="privacy-card privacy-coming-soon" aria-disabled="true">
+          <span className="setting-leading"><Lock size={18} /></span>
+          <span><strong>커뮤니티와 함께 만나요</strong><small>프로필 공개 기능은 커뮤니티 오픈 후 제공됩니다.</small></span>
+          <em>준비 중</em>
         </div>
       </section>
 
@@ -1345,9 +1732,109 @@ function BottomNav({ active, onChange }) {
   )
 }
 
+function RoomSettingsModal({ room, currentUser, onClose, onLeave, onDelete, onTransfer }) {
+  const isOwner = room.ownerId === currentUser.uid
+  const otherMembers = Object.entries(room.memberRecords || {}).filter(([uid]) => uid !== currentUser.uid)
+  const [nextOwnerId, setNextOwnerId] = useState(otherMembers[0]?.[0] || '')
+  const [busy, setBusy] = useState(false)
+
+  const run = async (action) => {
+    setBusy(true)
+    try {
+      await action()
+      onClose()
+    } catch {
+      // 상위 핸들러의 토스트 메시지를 유지합니다.
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  return (
+    <div className="overlay sheet-overlay" role="presentation" onMouseDown={(event) => event.target === event.currentTarget && onClose()}>
+      <section className="action-sheet room-settings-sheet" role="dialog" aria-modal="true" aria-labelledby="room-settings-title">
+        <div className="sheet-handle" />
+        <button type="button" className="modal-close" onClick={onClose} aria-label="닫기"><X size={21} /></button>
+        <span className="modal-icon"><Settings size={24} /></span>
+        <h2 id="room-settings-title">방 설정</h2>
+        <p>{room.name} · 코드 {room.code}</p>
+
+        {isOwner && otherMembers.length > 0 && (
+          <div className="owner-transfer-block">
+            <strong>방장 양도</strong>
+            <p>새 방장을 선택하면 현재 방장은 일반 멤버가 됩니다.</p>
+            <div className="member-choice-list">
+              {otherMembers.map(([uid, member]) => (
+                <button type="button" key={uid} className={nextOwnerId === uid ? 'selected' : ''} onClick={() => setNextOwnerId(uid)}>
+                  <span>{member.name?.slice(0, 1) || '?'}</span><b>{member.name || '참여자'}</b><CheckCircle2 size={17} />
+                </button>
+              ))}
+            </div>
+            <button type="button" className="sheet-submit secondary-submit" disabled={!nextOwnerId || busy} onClick={() => run(() => onTransfer(nextOwnerId))}>선택한 멤버에게 방장 양도</button>
+          </div>
+        )}
+
+        <div className="room-danger-actions">
+          {isOwner && otherMembers.length === 0 ? (
+            <button type="button" disabled={busy} onClick={() => run(onDelete)}><Trash2 size={18} /> 방 삭제하고 나가기</button>
+          ) : (
+            <button type="button" disabled={busy || (isOwner && !nextOwnerId)} onClick={() => run(() => onLeave(isOwner ? nextOwnerId : null))}><LogOut size={18} /> {isOwner ? '방장 양도 후 나가기' : '방 나가기'}</button>
+          )}
+          {isOwner && <button type="button" className="delete-room-button" disabled={busy} onClick={() => run(onDelete)}><Trash2 size={18} /> 모든 멤버에게서 방 삭제</button>}
+        </div>
+      </section>
+    </div>
+  )
+}
+
+function FriendInviteSheet({ room, friends, onClose, onAddFriend, onInvite }) {
+  const [email, setEmail] = useState('')
+  const [busy, setBusy] = useState(false)
+  const add = async () => {
+    setBusy(true)
+    const success = await onAddFriend(email)
+    if (success) setEmail('')
+    setBusy(false)
+  }
+  return (
+    <div className="overlay sheet-overlay" role="presentation" onMouseDown={(event) => event.target === event.currentTarget && onClose()}>
+      <section className="action-sheet friend-invite-sheet" role="dialog" aria-modal="true" aria-labelledby="friend-invite-title">
+        <div className="sheet-handle" />
+        <button type="button" className="modal-close" onClick={onClose} aria-label="닫기"><X size={21} /></button>
+        <span className="modal-icon"><UsersRound size={24} /></span>
+        <h2 id="friend-invite-title">친구 초대</h2>
+        <p>Google 계정 이메일로 친구를 찾고 방에 바로 초대할 수 있어요.</p>
+        <div className="friend-add-row">
+          <input value={email} onChange={(event) => setEmail(event.target.value)} placeholder="친구 이메일" type="email" />
+          <button type="button" disabled={!email.trim() || busy} onClick={add}><Plus size={17} /> 추가</button>
+        </div>
+        <div className="friend-list">
+          {friends.length ? friends.map((friend) => {
+            const joined = Boolean(room.memberRecords?.[friend.uid])
+            return (
+              <div key={friend.uid}>
+                <img src={friend.image || '/assets/default-profile.svg'} alt="" />
+                <span><b>{friend.name}</b><small>{friend.email}</small></span>
+                <button type="button" disabled={joined} onClick={() => onInvite(friend)}>{joined ? '참여 중' : '초대'}</button>
+              </div>
+            )
+          }) : <div className="empty-friend-list">추가한 친구가 없어요.</div>}
+        </div>
+      </section>
+    </div>
+  )
+}
+
 function ShareModal({ room, onClose, onToast }) {
+  const [qrImage, setQrImage] = useState('')
+  const inviteUrl = `${window.location.origin}/join/${encodeURIComponent(room.code)}`
+  useEffect(() => {
+    QRCode.toDataURL(inviteUrl, { width: 280, margin: 1, color: { dark: '#171717', light: '#ffffff' } })
+      .then(setQrImage)
+      .catch(() => setQrImage(''))
+  }, [inviteUrl])
   const copy = async () => {
-    try { await navigator.clipboard.writeText('<testcode>') } catch { /* preview fallback */ }
+    try { await navigator.clipboard.writeText(room.code) } catch { /* preview fallback */ }
     onToast('코드를 복사했어요')
   }
   return (
@@ -1358,12 +1845,9 @@ function ShareModal({ room, onClose, onToast }) {
         <p className="modal-kicker">ROOM INVITATION</p>
         <h2 id="share-title">{room.name}</h2>
         <p className="modal-description">QR을 보여주거나 코드를 공유해<br />친구를 모임에 초대하세요.</p>
-        <div className="qr-placeholder" aria-label="QR 코드 자리표시자">
-          <div className="qr-corner top-left" /><div className="qr-corner top-right" /><div className="qr-corner bottom-left" />
-          <span>QR</span>
-        </div>
+        <div className="qr-placeholder" aria-label="방 초대 QR 코드">{qrImage ? <img src={qrImage} alt={`${room.name} 초대 QR 코드`} /> : <span>QR</span>}</div>
         <button type="button" className="code-box" onClick={copy}>
-          <span><small>방 접속 코드</small><strong>&lt;testcode&gt;</strong></span><Copy size={19} />
+          <span><small>방 접속 코드</small><strong>{room.code}</strong></span><Copy size={19} />
         </button>
         <p className="hold-tip">방 카드를 길게 누르면 언제든 다시 볼 수 있어요.</p>
       </section>
@@ -1371,9 +1855,9 @@ function ShareModal({ room, onClose, onToast }) {
   )
 }
 
-function ActionSheet({ type, onClose, onCreate, onJoin }) {
+function ActionSheet({ type, initialCode = '', onClose, onCreate, onJoin }) {
   const [roomName, setRoomName] = useState('')
-  const [code, setCode] = useState('')
+  const [code, setCode] = useState(initialCode)
   const isCreate = type === 'create'
   return (
     <div className="overlay sheet-overlay" role="presentation" onMouseDown={(event) => event.target === event.currentTarget && onClose()}>
@@ -1389,10 +1873,10 @@ function ActionSheet({ type, onClose, onCreate, onJoin }) {
             autoFocus
             value={isCreate ? roomName : code}
             onChange={(event) => isCreate ? setRoomName(event.target.value) : setCode(event.target.value)}
-            placeholder={isCreate ? '예: 금요일 저녁팟' : '<testcode>'}
+            placeholder={isCreate ? '예: 금요일 저녁팟' : '예: A1B2C3'}
           />
         </label>
-        <button type="button" className="sheet-submit" onClick={() => isCreate ? onCreate(roomName) : onJoin()}>
+        <button type="button" className="sheet-submit" disabled={isCreate ? !roomName.trim() : !code.trim()} onClick={() => isCreate ? onCreate(roomName) : onJoin(code)}>
           {isCreate ? '방 만들기' : '접속하기'}
         </button>
       </section>

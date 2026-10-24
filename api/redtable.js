@@ -8,7 +8,7 @@ const RESOURCE_PATHS = {
 
 function sendJson(response, status, payload) {
   response.status(status).setHeader('Content-Type', 'application/json; charset=utf-8')
-  response.setHeader('Cache-Control', 's-maxage=300, stale-while-revalidate=900')
+  response.setHeader('Cache-Control', 'public, s-maxage=21600, stale-while-revalidate=86400')
   response.end(JSON.stringify(payload))
 }
 
@@ -25,7 +25,7 @@ export default async function handler(request, response) {
   const path = RESOURCE_PATHS[resource]
   if (!path) return sendJson(response, 400, { error: '지원하지 않는 데이터 요청입니다.' })
 
-  const pageNo = Math.max(1, Math.min(200, Number.parseInt(request.query.pageNo, 10) || 1))
+  const pageNo = 1
   const url = new URL(path, REDTABLE_BASE_URL)
   url.searchParams.set('serviceKey', token)
   url.searchParams.set('pageNo', String(pageNo))
