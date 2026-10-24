@@ -1022,13 +1022,16 @@ function App() {
     }
     const nextNicknameKey = nicknamePathKey(nickname)
     const previousNicknameKey = nicknamePathKey(userProfile.name)
+    const nicknameChanged = normalizeNickname(nickname) !== normalizeNickname(userProfile.name)
     try {
-      const reservation = await runTransaction(ref(database, `nicknames/${nextNicknameKey}`), (ownerUid) => (
-        ownerUid === null || ownerUid === uid ? uid : undefined
-      ), { applyLocally: false })
-      if (!reservation.committed) {
-        setToast('이미 사용 중인 닉네임이에요')
-        return false
+      if (nicknameChanged) {
+        const reservation = await runTransaction(ref(database, `nicknames/${nextNicknameKey}`), (ownerUid) => (
+          ownerUid === null || ownerUid === uid ? uid : undefined
+        ), { applyLocally: false })
+        if (!reservation.committed) {
+          setToast('이미 사용 중인 닉네임이에요')
+          return false
+        }
       }
       const savedProfile = { ...nextProfile, name: nickname }
       const changes = {
@@ -1047,7 +1050,7 @@ function App() {
           updatedAt: serverTimestamp(),
         },
       }
-      if (previousNicknameKey && previousNicknameKey !== nextNicknameKey) {
+      if (nicknameChanged && previousNicknameKey && previousNicknameKey !== nextNicknameKey) {
         const previousReservation = await get(ref(database, `nicknames/${previousNicknameKey}`))
         if (previousReservation.val() === uid) changes[`nicknames/${previousNicknameKey}`] = null
       }
@@ -2097,7 +2100,7 @@ function RoomDetail({ room, currentUser, friends, onBack, onShare, onDelete, onL
     return () => { cancelled = true }
   }, [stage, selectedMenu, userLocation?.lat, userLocation?.lng])
 
-  const stageTitles = ['대기실', '메뉴 고르기 모드', mode === 'ai' ? 'AI 메뉴 추천' : mode === 'tournament' ? '메뉴 이상형 월드컵' : '메뉴 룰렛', '주변 매장 찾기', '식사 준비 완료']
+  const stageTitles = ['대기실', '메뉴 고르기 모드', mode === 'ai' ? 'AI 메뉴 추천' : mode === 'tournament' ? '메뉴 이상형 월드컵' : mode === 'roulette' ? '메뉴 룰렛' : 'Hot Potato 먹기 도전', '주변 매장 찾기', '식사 준비 완료']
   const tournamentPair = tournamentRoundMenus.slice(tournamentMatchIndex * 2, tournamentMatchIndex * 2 + 2)
   const tournamentRoundLabel = tournamentRoundMenus.length === 2 ? '결승' : `${tournamentRoundMenus.length}강`
   const tournamentMatchCount = Math.max(1, tournamentRoundMenus.length / 2)
@@ -2196,7 +2199,7 @@ function RoomDetail({ room, currentUser, friends, onBack, onShare, onDelete, onL
       clearInterval(hotPotatoCountdownTimer.current)
       hotPotatoStartedAt.current = performance.now()
       setHotPotatoPhase('foil')
-    }, 850)
+    }, 1000)
   }
 
   const tapHotPotato = () => {
@@ -2296,7 +2299,7 @@ function RoomDetail({ room, currentUser, friends, onBack, onShare, onDelete, onL
 
   const beginPullBack = (clientY) => {
     const page = pageRef.current
-    if (!page || stage === 0 || (mode === 'competition' && stage >= 2)) return
+    if (!isOwner || !page || stage === 0 || (mode === 'competition' && stage >= 2)) return
     const atBottom = page.scrollHeight - page.scrollTop - page.clientHeight <= 8
     if (!atBottom) return
     pullStartY.current = clientY
@@ -2494,7 +2497,12 @@ function RoomDetail({ room, currentUser, friends, onBack, onShare, onDelete, onL
                 <>
                   <div
                     className={`hot-potato-arena ${hotPotatoPhase}`}
-                    style={{ '--foil-left': `${Math.max(0, 100 - (foilTaps / 12) * 100)}%`, '--eaten': `${Math.min(100, (eatTaps / 16) * 100)}%` }}
+                    style={{
+                      '--foil-opacity': Math.max(0, 1 - foilTaps / 12),
+                      '--foil-scale': Math.max(.65, 1 - foilTaps * .025),
+                      '--foil-rotation': `${foilTaps * 1.5}deg`,
+                      '--potato-scale': Math.max(.75, 1 - eatTaps * .015),
+                    }}
                     onClick={tapHotPotato}
                     onPointerDown={(event) => {
                       if (hotPotatoPhase !== 'cool') return
