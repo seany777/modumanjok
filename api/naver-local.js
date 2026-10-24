@@ -1,7 +1,7 @@
 const stripTags = (value = '') => value.replace(/<[^>]*>/g, '').replace(/&amp;/g, '&').trim()
 
 const specialistRules = {
-  '제육볶음': ['제육', '두루치기'],
+  '제육볶음': ['제육', '두루치기', '한식', '백반'],
   '치킨': ['치킨', '닭강정', '통닭'],
   '피자': ['피자'],
   '햄버거': ['햄버거', '버거'],
@@ -10,12 +10,12 @@ const specialistRules = {
   '돈까스': ['돈가스', '돈까스'],
   '떡볶이': ['떡볶이'],
   '마라탕': ['마라탕', '마라'],
-  '김치찌개': ['김치찌개'],
-  '비빔밥': ['비빔밥'],
+  '김치찌개': ['김치찌개', '찌개', '한식'],
+  '비빔밥': ['비빔밥', '한식'],
   '파스타': ['파스타', '스파게티', '이탈리아음식'],
   '쌀국수': ['쌀국수', '베트남음식'],
   '샤브샤브': ['샤브샤브', '샤브'],
-  '카레': ['카레', '커리', '인도음식'],
+  '카레': ['카레', '커리', '인도음식', '돈가스', '돈까스', '덮밥'],
   '냉면': ['냉면'],
   '채소죽': ['채소죽', '야채죽'],
   '구운 채소': ['구운채소', '구운 채소', '채소구이', '야채구이'],
@@ -53,7 +53,7 @@ export default async function handler(request, response) {
     url.searchParams.set('query', query)
     url.searchParams.set('display', '5')
     url.searchParams.set('start', '1')
-    url.searchParams.set('sort', 'comment')
+    url.searchParams.set('sort', 'random')
     url.searchParams.set('format', 'json')
     const result = await fetch(url, {
       headers: {
