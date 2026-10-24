@@ -103,6 +103,15 @@ const menuPreferenceCatalog = [
   { name: '냉면', cuisine: ['한식'], form: ['면류'], cooking: ['국물'], risks: ['메밀', '쇠고기', '난류(가금류)'] },
 ]
 
+const allergyFallbackCatalog = [
+  { name: '채소죽', cuisine: ['한식'], form: ['밥류', '채소류'], cooking: ['국물'], risks: [] },
+  { name: '구운 채소', cuisine: ['한식', '양식'], form: ['채소류'], cooking: ['구이'], risks: [] },
+  { name: '감자구이', cuisine: ['양식'], form: ['채소류'], cooking: ['구이'], risks: [] },
+  { name: '흰쌀밥과 나물', cuisine: ['한식'], form: ['밥류', '채소류'], cooking: ['비빔'], risks: [] },
+  { name: '채소쌀국수', cuisine: ['동남아 음식'], form: ['면류', '채소류'], cooking: ['국물'], risks: [] },
+  { name: '채소찜', cuisine: ['한식'], form: ['채소류'], cooking: ['찜'], risks: [] },
+]
+
 const normalizeFoodText = (value = '') => value.toLowerCase().replace(/[\s·()]/g, '')
 
 const getProfilePreferences = (profile) => ({
@@ -150,14 +159,22 @@ function makePreferenceCandidates(memberRecords) {
   })
   const safe = candidates.filter((candidate) => !candidate.blocked).sort((a, b) => b.score - a.score)
   if (!safe.length) {
-    return [{
-      name: '조건에 맞는 메뉴 없음',
-      score: 0,
-      reason: '못 먹는 음식과 알레르기 조건을 다시 확인해주세요',
-      unavailable: true,
-    }]
+    const avoidedTerms = preferences.flatMap((profile) => profile.avoided || []).map(normalizeFoodText).filter(Boolean)
+    const fallback = allergyFallbackCatalog.filter((menu) => {
+      const menuTerms = [menu.name, ...menu.cuisine, ...menu.form, ...menu.cooking].map(normalizeFoodText)
+      return !avoidedTerms.some((term) => menuTerms.some((menuTerm) => menuTerm.includes(term) || term.includes(menuTerm)))
+    })
+    return fallback
+      .map((menu) => ({
+        ...menu,
+        score: 68,
+        fallback: true,
+        reason: '알레르기 조건을 우선한 대체 후보 · 주문 전 매장 확인 필수',
+      }))
+      .sort(() => Math.random() - .5)
+      .slice(0, 3)
   }
-  return safe.slice(0, 3)
+  return safe.sort((a, b) => b.score - a.score || Math.random() - .5).slice(0, 3)
 }
 
 const sampleRestaurants = [
@@ -270,7 +287,7 @@ function loadRedtableBundle() {
 
 function loadNaverRestaurants(menu, area) {
   const queryText = `${area} ${menu} 맛집`.trim()
-  const cacheKey = `modumanjok-naver-local:${queryText}`
+  const cacheKey = `modumanjok-naver-local-v2:${queryText}`
   try {
     const cached = JSON.parse(sessionStorage.getItem(cacheKey) || 'null')
     if (cached?.savedAt > Date.now() - 30 * 60 * 1000) return Promise.resolve({ ...cached, area })
@@ -278,7 +295,7 @@ function loadNaverRestaurants(menu, area) {
     sessionStorage.removeItem(cacheKey)
   }
   if (naverRestaurantLoaders.has(cacheKey)) return naverRestaurantLoaders.get(cacheKey)
-  const loader = fetch(`/api/naver-local?query=${encodeURIComponent(queryText)}`)
+  const loader = fetch(`/api/naver-local?query=${encodeURIComponent(queryText)}&menu=${encodeURIComponent(menu)}`)
     .then((result) => result.json().then((data) => {
       if (!result.ok) throw new Error(data.error || '네이버 식당 검색에 실패했습니다.')
       const value = { items: data.items || [], area, savedAt: Date.now() }
@@ -1048,6 +1065,25 @@ function App() {
     }
   }
 
+  const submitTournamentResult = async (room, scores, winner, sessionId) => {
+    if (!authUser || !sessionId) return false
+    try {
+      await set(ref(database, `rooms/${room.id}/tournamentVotes/${authUser.uid}`), {
+        scores,
+        winner,
+        sessionId,
+        voterName: userProfile.name,
+        completedAt: Date.now(),
+      })
+      setToast('내 월드컵 결과를 제출했어요')
+      return true
+    } catch (error) {
+      console.error('Tournament result save failed:', error)
+      setToast('월드컵 결과 저장에 실패했어요')
+      return false
+    }
+  }
+
   const recordMenuHistory = async (room) => {
     if (!authUser || !room?.flow?.selectedMenu) return
     const historyRef = ref(database, `users/${authUser.uid}/menuHistory`)
@@ -1107,6 +1143,8 @@ function App() {
           onTransfer={(nextOwnerId) => transferOwner(selectedRoom, nextOwnerId)}
           onOpenFriends={() => setFriendSheetRoom(selectedRoom)}
           onFlowChange={(patch) => updateRoomFlow(selectedRoom, patch)}
+          onTournamentSubmit={(scores, winner, sessionId) => submitTournamentResult(selectedRoom, scores, winner, sessionId)}
+          onKeep={() => navigateTo('/')}
         />
         {shareRoom && <ShareModal room={shareRoom} onClose={() => setShareRoom(null)} onToast={setToast} />}
         {friendSheetRoom && (
@@ -1449,7 +1487,7 @@ function RoomCard({ room, onOpen, onLongPress }) {
   )
 }
 
-function RoomDetail({ room, currentUser, friends, onBack, onShare, onDelete, onLeave, onTransfer, onOpenFriends, onFlowChange }) {
+function RoomDetail({ room, currentUser, friends, onBack, onShare, onDelete, onLeave, onTransfer, onOpenFriends, onFlowChange, onTournamentSubmit, onKeep }) {
   const pageRef = useRef(null)
   const [stage, setStage] = useState(Number(room.flow?.stage || 0))
   const [mode, setMode] = useState(room.flow?.mode || 'ai')
@@ -1462,6 +1500,7 @@ function RoomDetail({ room, currentUser, friends, onBack, onShare, onDelete, onL
   const [tournamentRoundWinners, setTournamentRoundWinners] = useState([])
   const [tournamentMatchIndex, setTournamentMatchIndex] = useState(0)
   const [tournamentComplete, setTournamentComplete] = useState(false)
+  const [tournamentScores, setTournamentScores] = useState({})
   const [selectedRestaurant, setSelectedRestaurant] = useState(room.flow?.selectedRestaurant || null)
   const [naverRestaurants, setNaverRestaurants] = useState([])
   const [restaurantSource, setRestaurantSource] = useState('location')
@@ -1479,6 +1518,16 @@ function RoomDetail({ room, currentUser, friends, onBack, onShare, onDelete, onL
   const isOwner = room.ownerId === currentUser.uid
   const memberEntries = Object.entries(room.memberRecords || {})
   const preferenceSignature = JSON.stringify(memberEntries.map(([uid, member]) => [uid, member.preferences || null]))
+  const tournamentSessionId = room.flow?.tournamentSessionId || ''
+  const tournamentVotes = Object.values(room.tournamentVotes || {}).filter((vote) => vote.sessionId === tournamentSessionId)
+  const currentTournamentVote = room.tournamentVotes?.[currentUser.uid]
+  const hasSubmittedTournament = currentTournamentVote?.sessionId === tournamentSessionId
+  const tournamentAllComplete = Boolean(tournamentSessionId) && tournamentVotes.length >= memberEntries.length
+  const tournamentTotals = tournamentVotes.reduce((totals, vote) => {
+    Object.entries(vote.scores || {}).forEach(([menu, score]) => { totals[menu] = (totals[menu] || 0) + Number(score || 0) })
+    return totals
+  }, {})
+  const groupTournamentWinner = Object.entries(tournamentTotals).sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))[0]?.[0] || ''
 
   useEffect(() => {
     const flow = room.flow || {}
@@ -1487,6 +1536,17 @@ function RoomDetail({ room, currentUser, friends, onBack, onShare, onDelete, onL
     if (flow.selectedMenu) setSelectedMenu(flow.selectedMenu)
     if (flow.selectedRestaurant) setSelectedRestaurant(flow.selectedRestaurant)
   }, [room.flow?.stage, room.flow?.mode, room.flow?.selectedMenu, room.flow?.updatedAt])
+
+  useEffect(() => {
+    resetTournament()
+    setTournamentScores({})
+  }, [tournamentSessionId])
+
+  useEffect(() => {
+    if (!isOwner || !tournamentAllComplete || !groupTournamentWinner || room.flow?.selectedMenu === groupTournamentWinner) return
+    setSelectedMenu(groupTournamentWinner)
+    onFlowChange({ selectedMenu: groupTournamentWinner, tournamentComplete: true })
+  }, [isOwner, tournamentAllComplete, groupTournamentWinner, room.flow?.selectedMenu])
 
   useEffect(() => {
     pageRef.current?.scrollTo({ top: 0, behavior: 'auto' })
@@ -1544,6 +1604,7 @@ function RoomDetail({ room, currentUser, friends, onBack, onShare, onDelete, onL
   const tournamentRoundLabel = tournamentRoundMenus.length === 2 ? '결승' : `${tournamentRoundMenus.length}강`
   const tournamentMatchCount = Math.max(1, tournamentRoundMenus.length / 2)
   const selectedCandidate = menuCandidates.find((candidate) => candidate.name === selectedMenu)
+  const isAllergyFallback = menuCandidates.some((candidate) => candidate.fallback)
   const restaurantOptions = naverRestaurants
 
   const resetTournament = () => {
@@ -1551,6 +1612,7 @@ function RoomDetail({ room, currentUser, friends, onBack, onShare, onDelete, onL
     setTournamentRoundWinners([])
     setTournamentMatchIndex(0)
     setTournamentComplete(false)
+    setTournamentScores({})
   }
 
   const selectMode = (nextMode) => {
@@ -1569,6 +1631,8 @@ function RoomDetail({ room, currentUser, friends, onBack, onShare, onDelete, onL
   }
 
   const pickTournamentMenu = (menu) => {
+    const nextScores = { ...tournamentScores, [menu]: (tournamentScores[menu] || 0) + 1 }
+    setTournamentScores(nextScores)
     const nextWinners = [...tournamentRoundWinners, menu]
     const isLastMatch = tournamentMatchIndex + 1 >= tournamentMatchCount
 
@@ -1581,6 +1645,7 @@ function RoomDetail({ room, currentUser, friends, onBack, onShare, onDelete, onL
     if (nextWinners.length === 1) {
       setSelectedMenu(nextWinners[0])
       setTournamentComplete(true)
+      onTournamentSubmit(nextScores, nextWinners[0], tournamentSessionId)
       return
     }
 
@@ -1714,7 +1779,7 @@ function RoomDetail({ room, currentUser, friends, onBack, onShare, onDelete, onL
               <CheckCircle2 size={21} />
             </button>
           </div>
-          <button type="button" className="room-primary-button stage-next" disabled={!isOwner} onClick={() => moveToStage(2)}>{isOwner ? (mode === 'ai' ? 'AI 추천 시작하기' : '이상형 월드컵 시작하기') : '방장이 모드를 선택하고 있어요'} <ChevronRight size={18} /></button>
+          <button type="button" className="room-primary-button stage-next" disabled={!isOwner} onClick={() => moveToStage(2, { tournamentSessionId: mode === 'tournament' ? `${Date.now()}` : null, tournamentComplete: false })}>{isOwner ? (mode === 'ai' ? 'AI 추천 시작하기' : '이상형 월드컵 시작하기') : '방장이 모드를 선택하고 있어요'} <ChevronRight size={18} /></button>
         </section>
       )}
 
@@ -1730,8 +1795,10 @@ function RoomDetail({ room, currentUser, friends, onBack, onShare, onDelete, onL
               </button>
             ))}
           </div>
-          <p className="prototype-note">
-            <CheckCircle2 size={14} /> {menuApiMessage} 알레르기와 못 먹는 음식에 해당하는 메뉴는 후보에서 제외했습니다.
+          <p className={`prototype-note ${isAllergyFallback ? 'api-warning' : ''}`}>
+            {isAllergyFallback ? <AlertTriangle size={14} /> : <CheckCircle2 size={14} />} {isAllergyFallback
+              ? '일반 후보가 모두 제외되어 저알레르기 대체 메뉴를 무작위로 표시했어요. 실제 재료와 조리 환경은 매장에 반드시 확인해주세요.'
+              : `${menuApiMessage} 알레르기와 못 먹는 음식에 해당하는 메뉴는 후보에서 제외했습니다.`}
           </p>
           <button type="button" className="room-primary-button stage-next" onClick={() => moveToStage(3, { selectedMenu })} disabled={!isOwner || !selectedMenu || menuApiStatus === 'loading'}>{!isOwner ? '방장이 메뉴를 결정하고 있어요' : menuApiStatus === 'loading' ? '실제 메뉴 불러오는 중' : `${selectedMenu}으로 결정`} <ChevronRight size={18} /></button>
         </section>
@@ -1739,7 +1806,7 @@ function RoomDetail({ room, currentUser, friends, onBack, onShare, onDelete, onL
 
       {stage === 2 && mode === 'tournament' && (
         <section className="room-stage-section tournament-section">
-          {!tournamentComplete ? (
+          {!tournamentComplete && !hasSubmittedTournament ? (
             <>
               <div className="tournament-head"><span>{tournamentRoundLabel}</span><strong>{tournamentMatchIndex + 1}/{tournamentMatchCount}</strong></div>
               <h2>더 먹고 싶은 메뉴를 골라주세요</h2>
@@ -1751,12 +1818,16 @@ function RoomDetail({ room, currentUser, friends, onBack, onShare, onDelete, onL
                   </button>
                 ))}
               </div>
-              <p className="prototype-note"><UsersRound size={14} /> 다른 멤버의 선택은 예시 점수로 합산됩니다.</p>
+              <p className="prototype-note"><UsersRound size={14} /> 각 선택은 점수로 저장되고 모든 참여자의 결과와 합산됩니다.</p>
             </>
+          ) : !tournamentAllComplete ? (
+            <div className="tournament-winner tournament-waiting">
+              <span><UsersRound size={32} /></span><small>내 결과 제출 완료</small><h2>{tournamentVotes.length}/{memberEntries.length}명 완료</h2><p>모든 참여자가 월드컵을 마치면 총점 1위 메뉴가 결정됩니다.</p>
+            </div>
           ) : (
             <div className="tournament-winner">
-              <span><Trophy size={32} /></span><small>모임 합산 1위</small><h2>{selectedMenu}</h2><p>가장 많은 선택을 받은 메뉴예요.</p>
-              <button type="button" className="room-primary-button" disabled={!isOwner} onClick={() => moveToStage(3, { selectedMenu })}>{isOwner ? '이 메뉴로 매장 찾기' : '방장의 결정을 기다리는 중'} <ChevronRight size={18} /></button>
+              <span><Trophy size={32} /></span><small>{memberEntries.length}명 점수 합산 1위</small><h2>{groupTournamentWinner}</h2><p>모든 참여자의 선택 점수를 합산한 최종 메뉴예요.</p>
+              <button type="button" className="room-primary-button" disabled={!isOwner} onClick={() => moveToStage(3, { selectedMenu: groupTournamentWinner })}>{isOwner ? '이 메뉴로 매장 찾기' : '방장의 진행을 기다리는 중'} <ChevronRight size={18} /></button>
             </div>
           )}
         </section>
@@ -1787,7 +1858,7 @@ function RoomDetail({ room, currentUser, friends, onBack, onShare, onDelete, onL
                       <p><MapPin size={15} /> {restaurant.address}</p>
                       {restaurant.phone && <p>전화 {restaurant.phone}</p>}
                       <p>{restaurantSource === 'naver' ? '네이버 지역 검색 결과이며 평점은 제공되지 않아요.' : '현재 위치 주변 식당을 불러오는 중이에요.'}</p>
-                      <a href={restaurant.link || `https://map.naver.com/p/search/${encodeURIComponent(`${restaurant.name} ${restaurant.address}`)}`} target="_blank" rel="noreferrer">네이버 지도에서 자세히 보기 <ExternalLink size={14} /></a>
+                      <a href={`https://map.naver.com/p/search/${encodeURIComponent(restaurant.name)}`} target="_blank" rel="noreferrer">네이버 지도에서 자세히 보기 <ExternalLink size={14} /></a>
                     </div>
                   )}
                 </article>
@@ -1817,9 +1888,10 @@ function RoomDetail({ room, currentUser, friends, onBack, onShare, onDelete, onL
             <div className="delete-confirm">
               <p>방을 종료하면 목록에서 삭제돼요.</p>
               <button type="button" onClick={onDelete}>방 종료하고 삭제하기</button>
-              <button type="button" onClick={() => setConfirmDelete(false)}>아직 유지하기</button>
+              <button type="button" onClick={onKeep}>방 유지하고 메인으로</button>
             </div>
           )}
+          {isOwner && memberEntries.length > 1 && <button type="button" className="finish-transfer-button" onClick={() => setRoomSettingsOpen(true)}><Crown size={16} /> 방장 양도하기</button>}
         </section>
       )}
       </div>
