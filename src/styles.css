@@ -240,6 +240,10 @@ button:focus-visible, input:focus-visible { outline: 3px solid rgba(22, 35, 30, 
 .location-line { display: flex; align-items: center; gap: 6px; margin: 0 3px 11px; font-size: 10px; font-weight: 750; }
 .location-line small { margin-left: auto; color: var(--muted); font-size: 8px; font-weight: 600; }
 .restaurant-list { display: grid; gap: 9px; }
+.naver-restaurant-map, .map-placeholder { width: 100%; height: 190px; margin-bottom: 12px; border: 1px solid var(--line); border-radius: 20px; overflow: hidden; background: #e9e9e6; }
+.map-placeholder { display: flex; align-items: center; justify-content: center; gap: 9px; padding: 24px; color: var(--muted); font-size: 10px; font-weight: 750; text-align: center; }
+.map-placeholder.error, .prototype-note.api-warning { color: #8d3d36; }
+.current-location-marker { width: 16px; height: 16px; border: 4px solid #fff; border-radius: 50%; background: #151515; box-shadow: 0 1px 7px rgba(0,0,0,.35); }
 .restaurant-card { overflow: hidden; border: 1px solid var(--line); border-radius: 19px; background: #fff; }
 .restaurant-card.selected { border-color: var(--ink); }
 .restaurant-main { width: 100%; min-height: 67px; display: grid; grid-template-columns: 34px 1fr auto; align-items: center; gap: 10px; padding: 12px 14px; border: 0; background: transparent; text-align: left; cursor: pointer; }
@@ -357,6 +361,7 @@ button:focus-visible, input:focus-visible { outline: 3px solid rgba(22, 35, 30, 
 .simple-menu-history { overflow: hidden; border: 1px solid var(--line); border-radius: 20px; background: #fff; }
 .simple-menu-history > div { padding: 15px 17px; border-bottom: 1px solid var(--line); font-size: 12px; font-weight: 750; }
 .simple-menu-history > div:last-child { border-bottom: 0; }
+.simple-menu-history > .empty-menu-history { padding: 27px 17px; color: var(--muted); font-size: 10px; font-weight: 600; text-align: center; }
 .settings-placeholder { display: flex; flex-direction: column; align-items: center; margin-top: 10px; padding: 52px 25px; border: 1px solid var(--line); border-radius: 24px; background: #fff; text-align: center; }
 .settings-placeholder > span { width: 58px; height: 58px; display: grid; place-items: center; border-radius: 18px; background: #e7e7e4; }
 .settings-placeholder h2 { margin: 17px 0 7px; font-size: 19px; }
@@ -416,6 +421,7 @@ button:focus-visible, input:focus-visible { outline: 3px solid rgba(22, 35, 30, 
 :root[data-theme="dark"] :is(.profile-photo, .photo-editor img) { filter: none; }
 :root[data-theme="dark"] :is(.room-lobby-hero, .ai-recommend-banner, .selected-menu-banner) { background: #292928; }
 :root[data-theme="dark"] :is(.lobby-ready-card, .mode-card, .ai-menu-list, .tournament-pair button, .tournament-winner, .restaurant-card, .finish-section) { background: #1b1b1a; color: #f4f4f2; border-color: var(--line); }
+:root[data-theme="dark"] .map-placeholder { background: #232321; }
 :root[data-theme="dark"] :is(.lobby-member-grid > div, .lobby-member-grid > div > span, .ai-recommend-banner > span, .selected-menu-banner > span) { background: #343432; }
 :root[data-theme="dark"] :is(.mode-icon, .menu-rank, .tournament-head span, .tournament-winner > span, .restaurant-order, .finish-icon) { background: #2b2b29; color: #f4f4f2; }
 :root[data-theme="dark"] .mode-card.selected { border-color: #f4f4f2; }

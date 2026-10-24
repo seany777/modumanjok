@@ -104,6 +104,135 @@ const sampleRestaurants = [
   { id: 3, name: '모두의 키친', distance: '850m', rating: 4.5, walk: '도보 12분', address: '중앙로 18번길 3' },
 ]
 
+const cleanMenuName = (name = '') => name.replace(/\([^)]*\)/g, '').replace(/\s+/g, ' ').trim()
+
+const formatPrice = (price) => Number(price).toLocaleString('ko-KR') + '원'
+
+const distanceInMeters = (origin, destination) => {
+  if (!origin || !destination?.lat || !destination?.lng) return null
+  const toRad = (degree) => degree * Math.PI / 180
+  const earthRadius = 6371000
+  const latDelta = toRad(destination.lat - origin.lat)
+  const lngDelta = toRad(destination.lng - origin.lng)
+  const value = Math.sin(latDelta / 2) ** 2
+    + Math.cos(toRad(origin.lat)) * Math.cos(toRad(destination.lat)) * Math.sin(lngDelta / 2) ** 2
+  return Math.round(earthRadius * 2 * Math.atan2(Math.sqrt(value), Math.sqrt(1 - value)))
+}
+
+const formatDistance = (meters) => {
+  if (!Number.isFinite(meters)) return '거리 계산 전'
+  return meters < 1000 ? `${meters}m` : `${(meters / 1000).toFixed(1)}km`
+}
+
+function makeApiCandidates(menuItems, restaurantItems, qualityItems) {
+  const restaurants = new Map(restaurantItems.map((item) => [String(item.RSTR_ID), item]))
+  const qualities = new Map(qualityItems.map((item) => [String(item.RSTR_ID), item]))
+  const groups = new Map()
+
+  menuItems.forEach((item) => {
+    const name = cleanMenuName(item.MENU_NM)
+    const price = Number(item.MENU_PRICE)
+    if (!name || !/[가-힣]/.test(name) || name.length > 18 || !price || price > 30000) return
+    const current = groups.get(name) || { name, prices: [], restaurantIds: new Set() }
+    current.prices.push(price)
+    current.restaurantIds.add(String(item.RSTR_ID))
+    groups.set(name, current)
+  })
+
+  return [...groups.values()]
+    .filter((group) => [...group.restaurantIds].some((id) => restaurants.has(id)))
+    .sort((a, b) => b.restaurantIds.size - a.restaurantIds.size || Math.min(...a.prices) - Math.min(...b.prices))
+    .slice(0, 3)
+    .map((group, index) => ({
+      name: group.name,
+      score: 94 - index * 6,
+      reason: `서울 관광 음식 데이터 · ${formatPrice(Math.min(...group.prices))}부터`,
+      restaurants: [...group.restaurantIds]
+        .map((id) => {
+          const restaurant = restaurants.get(id)
+          if (!restaurant) return null
+          const quality = qualities.get(id)
+          return {
+            id,
+            name: restaurant.RSTR_NM,
+            address: restaurant.RSTR_RDNMADR || restaurant.RSTR_LNNO_ADRES || '주소 정보 없음',
+            phone: restaurant.RSTR_TELNO || '',
+            lat: Number(restaurant.RSTR_LA),
+            lng: Number(restaurant.RSTR_LO),
+            rating: Number(quality?.NAVER_GRAD) || null,
+          }
+        })
+        .filter(Boolean)
+        .slice(0, 8),
+    }))
+}
+
+let naverMapLoader
+
+function loadNaverMaps(keyId) {
+  if (window.naver?.maps) return Promise.resolve(window.naver.maps)
+  if (naverMapLoader) return naverMapLoader
+  naverMapLoader = new Promise((resolve, reject) => {
+    const callbackName = `initModumanjokMap${Date.now()}`
+    window[callbackName] = () => {
+      delete window[callbackName]
+      resolve(window.naver.maps)
+    }
+    window.navermap_authFailure = () => reject(new Error('네이버 지도 인증에 실패했습니다.'))
+    const script = document.createElement('script')
+    script.src = `https://oapi.map.naver.com/openapi/v3/maps.js?ncpKeyId=${encodeURIComponent(keyId)}&callback=${callbackName}`
+    script.async = true
+    script.onerror = () => reject(new Error('네이버 지도를 불러오지 못했습니다.'))
+    document.head.appendChild(script)
+  })
+  return naverMapLoader
+}
+
+function NaverRestaurantMap({ restaurants, selectedRestaurant, userLocation }) {
+  const mapElement = useRef(null)
+  const keyId = import.meta.env.VITE_NAVER_MAP_NCP_KEY_ID
+  const [mapError, setMapError] = useState('')
+
+  useEffect(() => {
+    const locations = restaurants.filter((restaurant) => Number.isFinite(restaurant.lat) && Number.isFinite(restaurant.lng))
+    if (!keyId || !mapElement.current || locations.length === 0) return
+    let disposed = false
+
+    loadNaverMaps(keyId).then((maps) => {
+      if (disposed || !mapElement.current) return
+      const focus = selectedRestaurant?.lat ? selectedRestaurant : locations[0]
+      const map = new maps.Map(mapElement.current, {
+        center: new maps.LatLng(focus.lat, focus.lng),
+        zoom: 14,
+        zoomControl: true,
+      })
+      const bounds = new maps.LatLngBounds()
+      locations.forEach((restaurant) => {
+        const position = new maps.LatLng(restaurant.lat, restaurant.lng)
+        bounds.extend(position)
+        new maps.Marker({ map, position, title: restaurant.name })
+      })
+      if (userLocation) {
+        const position = new maps.LatLng(userLocation.lat, userLocation.lng)
+        bounds.extend(position)
+        new maps.Marker({
+          map,
+          position,
+          title: '현재 위치',
+          icon: { content: '<div class="current-location-marker"></div>', anchor: new maps.Point(8, 8) },
+        })
+      }
+      if (locations.length > 1 || userLocation) map.fitBounds(bounds, { top: 30, right: 30, bottom: 30, left: 30 })
+    }).catch((error) => setMapError(error.message))
+
+    return () => { disposed = true }
+  }, [keyId, restaurants, selectedRestaurant, userLocation])
+
+  if (!keyId) return <div className="map-placeholder"><MapPin size={22} /><span>네이버 지도 키를 연결하면 여기에 지도가 표시돼요.</span></div>
+  if (mapError) return <div className="map-placeholder error"><AlertTriangle size={22} /><span>{mapError}</span></div>
+  return <div ref={mapElement} className="naver-restaurant-map" aria-label="추천 매장 지도" />
+}
+
 const navItems = [
   { id: 'home', label: '메인', icon: Home },
   { id: 'rooms', label: '방 접속', icon: LogIn },
@@ -112,14 +241,16 @@ const navItems = [
 ]
 
 const defaultUserProfile = {
-  name: '<이름>',
-  image: '/assets/profile-example-color.png',
-  cuisine: ['한식', '일식'],
-  form: ['밥류', '면류'],
-  cooking: ['국물', '볶음'],
-  avoided: ['가지', '고수'],
-  allergies: ['갑각류'],
+  name: '',
+  image: '/assets/default-profile.svg',
+  cuisine: [],
+  form: [],
+  cooking: [],
+  avoided: [],
+  allergies: [],
 }
+
+const PROFILE_DATA_VERSION = 2
 
 function App() {
   const [authUser, setAuthUser] = useState(undefined)
@@ -171,9 +302,10 @@ function App() {
 
     const googleProfile = {
       ...defaultUserProfile,
-      name: user.displayName || defaultUserProfile.name,
+      name: user.displayName || user.email?.split('@')[0] || '사용자',
       image: user.photoURL || defaultUserProfile.image,
     }
+    setUserProfile(googleProfile)
 
     try {
       const userRef = ref(database, `users/${user.uid}`)
@@ -181,10 +313,22 @@ function App() {
 
       if (snapshot.exists()) {
         const saved = snapshot.val()
+        if (saved.profileDataVersion !== PROFILE_DATA_VERSION) {
+          await update(userRef, {
+            ...googleProfile,
+            uid: user.uid,
+            email: user.email || '',
+            profileDataVersion: PROFILE_DATA_VERSION,
+            updatedAt: serverTimestamp(),
+          })
+          setUserProfile(googleProfile)
+          return
+        }
+        const savedName = saved.name && saved.name !== '<이름>' ? saved.name : googleProfile.name
         setUserProfile({
           ...googleProfile,
           ...saved,
-          name: saved.name || googleProfile.name,
+          name: savedName,
           image: saved.image || googleProfile.image,
           cuisine: saved.cuisine || googleProfile.cuisine,
           form: saved.form || googleProfile.form,
@@ -192,11 +336,15 @@ function App() {
           avoided: saved.avoided || googleProfile.avoided,
           allergies: saved.allergies || googleProfile.allergies,
         })
+        if (!saved.name || saved.name === '<이름>') {
+          await update(userRef, { name: googleProfile.name, updatedAt: serverTimestamp() })
+        }
       } else {
         await set(userRef, {
           ...googleProfile,
           uid: user.uid,
           email: user.email || '',
+          profileDataVersion: PROFILE_DATA_VERSION,
           createdAt: serverTimestamp(),
           updatedAt: serverTimestamp(),
         })
@@ -256,6 +404,7 @@ function App() {
         ...nextProfile,
         uid: auth.currentUser.uid,
         email: auth.currentUser.email || '',
+        profileDataVersion: PROFILE_DATA_VERSION,
         updatedAt: serverTimestamp(),
       })
       setToast(message)
@@ -624,6 +773,10 @@ function RoomDetail({ room, onBack, onShare, onDelete }) {
   const [stage, setStage] = useState(0)
   const [mode, setMode] = useState('ai')
   const [selectedMenu, setSelectedMenu] = useState(aiMenuCandidates[0].name)
+  const [menuCandidates, setMenuCandidates] = useState(aiMenuCandidates)
+  const [menuApiStatus, setMenuApiStatus] = useState('idle')
+  const [menuApiMessage, setMenuApiMessage] = useState('')
+  const [userLocation, setUserLocation] = useState(null)
   const [tournamentRoundMenus, setTournamentRoundMenus] = useState(tournamentMenus)
   const [tournamentRoundWinners, setTournamentRoundWinners] = useState([])
   const [tournamentMatchIndex, setTournamentMatchIndex] = useState(0)
@@ -643,10 +796,44 @@ function RoomDetail({ room, onBack, onShare, onDelete }) {
     previousStage.current = stage
   }, [stage])
 
+  useEffect(() => {
+    if (stage !== 2 || mode !== 'ai' || menuApiStatus !== 'idle') return
+    let cancelled = false
+    setMenuApiStatus('loading')
+    Promise.all([
+      fetch('/api/redtable?resource=menus&pageNo=1').then((response) => response.ok ? response.json() : response.json().then((data) => Promise.reject(new Error(data.error)))),
+      fetch('/api/redtable?resource=restaurants&pageNo=1').then((response) => response.ok ? response.json() : response.json().then((data) => Promise.reject(new Error(data.error)))),
+      fetch('/api/redtable?resource=quality&pageNo=1').then((response) => response.ok ? response.json() : response.json().then((data) => Promise.reject(new Error(data.error)))),
+    ]).then(([menus, restaurants, quality]) => {
+      if (cancelled) return
+      const candidates = makeApiCandidates(menus.items, restaurants.items, quality.items)
+      if (!candidates.length) throw new Error('조건에 맞는 메뉴를 찾지 못했습니다.')
+      setMenuCandidates(candidates)
+      setSelectedMenu(candidates[0].name)
+      setMenuApiStatus('ready')
+    }).catch((error) => {
+      if (cancelled) return
+      setMenuApiStatus('fallback')
+      setMenuApiMessage(error.message || 'API 연결을 확인해주세요.')
+    })
+    return () => { cancelled = true }
+  }, [stage, mode, menuApiStatus])
+
+  useEffect(() => {
+    if (stage !== 3 || !navigator.geolocation) return
+    navigator.geolocation.getCurrentPosition(
+      ({ coords }) => setUserLocation({ lat: coords.latitude, lng: coords.longitude }),
+      () => setUserLocation(null),
+      { enableHighAccuracy: true, timeout: 8000, maximumAge: 300000 },
+    )
+  }, [stage])
+
   const stageTitles = ['대기실', '메뉴 고르기 모드', mode === 'ai' ? 'AI 메뉴 추천' : '메뉴 이상형 월드컵', '주변 매장 찾기', '식사 준비 완료']
   const tournamentPair = tournamentRoundMenus.slice(tournamentMatchIndex * 2, tournamentMatchIndex * 2 + 2)
   const tournamentRoundLabel = tournamentRoundMenus.length === 2 ? '결승' : `${tournamentRoundMenus.length}강`
   const tournamentMatchCount = Math.max(1, tournamentRoundMenus.length / 2)
+  const selectedCandidate = menuCandidates.find((candidate) => candidate.name === selectedMenu)
+  const restaurantOptions = selectedCandidate?.restaurants?.length ? selectedCandidate.restaurants : sampleRestaurants
 
   const resetTournament = () => {
     setTournamentRoundMenus(tournamentMenus)
@@ -657,7 +844,7 @@ function RoomDetail({ room, onBack, onShare, onDelete }) {
 
   const selectMode = (nextMode) => {
     setMode(nextMode)
-    setSelectedMenu(nextMode === 'ai' ? aiMenuCandidates[0].name : null)
+    setSelectedMenu(nextMode === 'ai' ? menuCandidates[0].name : null)
     resetTournament()
   }
 
@@ -687,7 +874,7 @@ function RoomDetail({ room, onBack, onShare, onDelete }) {
     if (stage === 2) {
       setStage(1)
       resetTournament()
-      setSelectedMenu(mode === 'ai' ? aiMenuCandidates[0].name : null)
+      setSelectedMenu(mode === 'ai' ? menuCandidates[0].name : null)
     }
     if (stage === 3) {
       setStage(2)
@@ -808,9 +995,9 @@ function RoomDetail({ room, onBack, onShare, onDelete }) {
 
       {stage === 2 && mode === 'ai' && (
         <section className="room-stage-section">
-          <div className="ai-recommend-banner"><span><Sparkles size={20} /></span><div><small>모든 멤버의 정보를 분석했어요</small><strong>함께 먹기 좋은 메뉴 3개</strong></div></div>
+          <div className="ai-recommend-banner"><span><Sparkles size={20} /></span><div><small>{menuApiStatus === 'loading' ? '서울 관광 음식 데이터를 불러오는 중이에요' : '모든 멤버의 정보를 분석했어요'}</small><strong>함께 먹기 좋은 메뉴 3개</strong></div></div>
           <div className="ai-menu-list">
-            {aiMenuCandidates.map((menu, index) => (
+            {menuCandidates.map((menu, index) => (
               <button key={menu.name} type="button" className={selectedMenu === menu.name ? 'selected' : ''} onClick={() => setSelectedMenu(menu.name)}>
                 <span className="menu-rank">{index + 1}</span>
                 <span className="candidate-copy"><b>{menu.name}</b><small>{menu.reason}</small></span>
@@ -818,7 +1005,10 @@ function RoomDetail({ room, onBack, onShare, onDelete }) {
               </button>
             ))}
           </div>
-          <p className="prototype-note"><Info size={14} /> 현재는 예시 추천이며, 이후 AI API와 연결됩니다.</p>
+          <p className={`prototype-note ${menuApiStatus === 'fallback' ? 'api-warning' : ''}`}>
+            {menuApiStatus === 'ready' ? <CheckCircle2 size={14} /> : menuApiStatus === 'fallback' ? <AlertTriangle size={14} /> : <Info size={14} />}
+            {menuApiStatus === 'ready' ? '서울관광재단 음식·식당 데이터가 적용됐어요.' : menuApiStatus === 'fallback' ? `${menuApiMessage} 예시 메뉴를 표시합니다.` : '연결 전에는 예시 추천이 표시됩니다.'}
+          </p>
           <button type="button" className="room-primary-button stage-next" onClick={() => setStage(3)} disabled={!selectedMenu}>{selectedMenu}으로 결정 <ChevronRight size={18} /></button>
         </section>
       )}
@@ -846,30 +1036,35 @@ function RoomDetail({ room, onBack, onShare, onDelete }) {
       {stage === 3 && (
         <section className="room-stage-section">
           <div className="selected-menu-banner"><span><CheckCircle2 size={22} /></span><div><small>선택한 메뉴</small><strong>{selectedMenu}</strong></div></div>
-          <div className="location-line"><Navigation size={16} /><span>현재 위치 · 학교 정문 기준</span><small>예시 위치</small></div>
+          <div className="location-line"><Navigation size={16} /><span>{userLocation ? '현재 위치 기준 거리' : '현재 위치 확인 전'}</span><small>{userLocation ? '위치 사용 중' : '위치 권한 필요'}</small></div>
+          <NaverRestaurantMap restaurants={restaurantOptions} selectedRestaurant={selectedRestaurant} userLocation={userLocation} />
           <div className="restaurant-list">
-            {sampleRestaurants.map((restaurant) => {
+            {restaurantOptions.map((restaurant, index) => {
               const isOpen = expandedRestaurant === restaurant.id
               const isSelected = selectedRestaurant?.id === restaurant.id
+              const meters = distanceInMeters(userLocation, restaurant)
+              const distance = restaurant.distance || formatDistance(meters)
+              const walk = restaurant.walk || (Number.isFinite(meters) ? `도보 약 ${Math.max(1, Math.round(meters / 80))}분` : '도보 시간 계산 전')
               return (
                 <article key={restaurant.id} className={`restaurant-card ${isSelected ? 'selected' : ''}`}>
-                  <button type="button" className="restaurant-main" onClick={() => { setExpandedRestaurant(isOpen ? null : restaurant.id); setSelectedRestaurant(restaurant) }}>
-                    <span className="restaurant-order">{restaurant.id}</span>
-                    <span><b>{restaurant.name}</b><small><Star size={12} fill="currentColor" /> {restaurant.rating} · {restaurant.distance} · {restaurant.walk}</small></span>
+                  <button type="button" className="restaurant-main" onClick={() => { setExpandedRestaurant(isOpen ? null : restaurant.id); setSelectedRestaurant({ ...restaurant, distance, walk }) }}>
+                    <span className="restaurant-order">{index + 1}</span>
+                    <span><b>{restaurant.name}</b><small><Star size={12} fill={restaurant.rating ? 'currentColor' : 'none'} /> {restaurant.rating ? restaurant.rating.toFixed(1) : '별점 없음'} · {distance} · {walk}</small></span>
                     <ChevronDown size={18} className={isOpen ? 'rotated' : ''} />
                   </button>
                   {isOpen && (
                     <div className="restaurant-details">
                       <p><MapPin size={15} /> {restaurant.address}</p>
-                      <p>거리와 별점을 함께 고려한 예시 추천입니다.</p>
-                      <a href={`https://map.naver.com/p/search/${encodeURIComponent(restaurant.name)}`} target="_blank" rel="noreferrer">자세히 보기 <ExternalLink size={14} /></a>
+                      {restaurant.phone && <p>전화 {restaurant.phone}</p>}
+                      <p>{restaurant.lat ? '서울관광재단 식당 정보와 현재 위치를 기준으로 계산했어요.' : 'API 연결 전 예시 추천입니다.'}</p>
+                      <a href={`https://map.naver.com/p/search/${encodeURIComponent(`${restaurant.name} ${restaurant.address}`)}`} target="_blank" rel="noreferrer">네이버 지도에서 자세히 보기 <ExternalLink size={14} /></a>
                     </div>
                   )}
                 </article>
               )
             })}
           </div>
-          <p className="prototype-note"><Info size={14} /> 실제 거리·별점은 위치 및 매장 API 연결 후 제공됩니다.</p>
+          <p className="prototype-note"><Info size={14} /> 별점은 제공된 네이버 평점이며, 없는 매장은 별점 없음으로 표시됩니다.</p>
           <button type="button" className="room-primary-button stage-next" disabled={!selectedRestaurant} onClick={() => setStage(4)}>{selectedRestaurant ? `${selectedRestaurant.name}으로 결정` : '매장을 선택해주세요'} <ChevronRight size={18} /></button>
         </section>
       )}
@@ -909,19 +1104,6 @@ function RoomDetail({ room, onBack, onShare, onDelete }) {
 }
 
 function ProfileScreen({ profile, onOpenSettings, onEditProfile, onEditTaste }) {
-  const foodStats = [
-    { label: '밥류', count: 9, percent: 41 },
-    { label: '면류', count: 7, percent: 32 },
-    { label: '국물', count: 4, percent: 18 },
-    { label: '구이', count: 2, percent: 9 },
-  ]
-  const menuHistory = [
-    { menu: '제육볶음', count: 8, percent: 82 },
-    { menu: '라멘', count: 6, percent: 62 },
-    { menu: '피자', count: 5, percent: 52 },
-  ]
-  const recentMenus = ['제육볶음', '라멘', '피자', '마라탕', '돈까스']
-
   return (
     <>
       <Header
@@ -936,53 +1118,17 @@ function ProfileScreen({ profile, onOpenSettings, onEditProfile, onEditTaste }) 
 
       <section className="profile-card">
         <div className="profile-photo-wrap">
-          <img src={profile.image} alt="예시 프로필" className="profile-photo" />
+          <img src={profile.image} alt="프로필" className="profile-photo" />
           <span className="photo-badge"><Camera size={14} /></span>
         </div>
         <div className="profile-identity">
           <span>PROFILE</span>
           <h2>{profile.name}</h2>
-          <p>함께 고른 메뉴가 쌓이고 있어요.</p>
+          <p>내 취향과 식사 기록을 관리해요.</p>
         </div>
         <button type="button" className="edit-profile-button" onClick={onEditProfile}>
           <Pencil size={15} /> 수정
         </button>
-      </section>
-
-      <section className="profile-section">
-        <div className="profile-section-heading">
-          <div><span>STATISTICS</span><h2>지금까지의 메뉴 통계</h2></div>
-          <Trophy size={20} />
-        </div>
-        <div className="menu-record-card stats-menu-chart">
-          <div className="menu-record-copy">
-            <strong>먹은 메뉴 통계</strong>
-            <span>지금까지 어떤 메뉴를 가장 많이 먹었는지 볼 수 있어요.</span>
-          </div>
-          <div className="menu-bar-chart" aria-label="메뉴별 선택 횟수">
-            {menuHistory.map((item) => (
-              <div className="menu-bar-item" key={item.menu}>
-                <strong>{item.count}회</strong>
-                <div className="vertical-bar-track"><span style={{ height: `${item.percent}%` }} /></div>
-                <small>{item.menu}</small>
-              </div>
-            ))}
-          </div>
-        </div>
-        <div className="stat-overview">
-          <div><strong>22</strong><span>함께 고른 메뉴</span></div>
-          <div><strong>8</strong><span>참여한 모임</span></div>
-          <div><strong>밥류</strong><span>가장 자주 선택</span></div>
-        </div>
-        <div className="food-stats-card">
-          {foodStats.map((item) => (
-            <div className="food-stat-row" key={item.label}>
-              <span className="food-stat-name">{item.label}</span>
-              <div className="food-stat-track"><span style={{ width: `${item.percent}%` }} /></div>
-              <strong>{item.count}회</strong>
-            </div>
-          ))}
-        </div>
       </section>
 
       <section className="profile-section">
@@ -1006,7 +1152,7 @@ function ProfileScreen({ profile, onOpenSettings, onEditProfile, onEditTaste }) 
           <History size={20} />
         </div>
         <div className="simple-menu-history" aria-label="최근 먹은 메뉴">
-          {recentMenus.map((menu) => <div key={menu}>{menu}</div>)}
+          <div className="empty-menu-history">아직 결정한 메뉴가 없어요.</div>
         </div>
       </section>
     </>
@@ -1121,7 +1267,7 @@ function ProfileEditSheet({ profile, onClose, onSave }) {
           <label className="photo-change-button"><Camera size={16} /> 사진 변경<input type="file" accept="image/*" onChange={chooseImage} /></label>
         </div>
         <label className="field-label">이름<input value={name} onChange={(event) => setName(event.target.value)} placeholder="이름을 입력해주세요" /></label>
-        <button type="button" className="sheet-submit" onClick={() => onSave({ ...profile, name: name.trim() || '<이름>', image })}>저장하기</button>
+        <button type="button" className="sheet-submit" onClick={() => onSave({ ...profile, name: name.trim() || profile.name || '사용자', image })}>저장하기</button>
       </section>
     </div>
   )
