@@ -59,7 +59,7 @@ const aiMenuCandidates = [
 ]
 
 const roomModeLabels = {
-  ai: 'AI 추천',
+  ai: '맞춤 메뉴 추천',
   tournament: '메뉴 이상형 월드컵',
   roulette: '메뉴 룰렛',
   competition: 'Hot Potato 먹기 도전',
@@ -71,8 +71,8 @@ const tournamentMenus = [
   '떡볶이', '햄버거', '파스타', '쌀국수',
   '치킨', '샤브샤브', '카레', '냉면',
   '족발', '보쌈', '김밥', '순대국',
-  '칼국수', '닭갈비', '부대찌개', '볶음밥',
-  '짜장면', '짬뽕', '탕수육', '우동',
+  '칼국수', '닭갈비', '부대찌개', '짜장면',
+  '짬뽕', '탕수육', '우동',
   '오므라이스', '회덮밥', '샌드위치', '케밥',
 ]
 
@@ -119,7 +119,6 @@ const menuPreferenceCatalog = [
   { name: '칼국수', cuisine: ['한식'], form: ['면류'], cooking: ['국물'], risks: ['밀', '조개류(굴·전복·홍합)'] },
   { name: '닭갈비', cuisine: ['한식'], form: ['고기류'], cooking: ['볶음'], risks: ['닭고기', '대두(콩류)'] },
   { name: '부대찌개', cuisine: ['한식'], form: ['고기류'], cooking: ['국물'], risks: ['돼지고기', '대두(콩류)', '밀', '우유'] },
-  { name: '볶음밥', cuisine: ['한식', '중식'], form: ['밥류'], cooking: ['볶음'], risks: ['난류(가금류)', '대두(콩류)'] },
   { name: '짜장면', cuisine: ['중식'], form: ['면류'], cooking: ['볶음'], risks: ['밀', '대두(콩류)', '돼지고기'] },
   { name: '짬뽕', cuisine: ['중식'], form: ['면류', '해산물류'], cooking: ['국물'], risks: ['밀', '갑각류', '조개류(굴·전복·홍합)'] },
   { name: '탕수육', cuisine: ['중식'], form: ['고기류'], cooking: ['튀김'], risks: ['돼지고기', '밀', '대두(콩류)'] },
@@ -129,6 +128,17 @@ const menuPreferenceCatalog = [
   { name: '샌드위치', cuisine: ['양식'], form: ['빵류', '채소류'], cooking: ['기타'], risks: ['밀', '우유', '난류(가금류)'] },
   { name: '케밥', cuisine: ['인도·중동 음식'], form: ['빵류', '고기류'], cooking: ['구이'], risks: ['밀', '우유', '쇠고기'] },
 ]
+
+const menuPriceRanges = {
+  '제육볶음': [9000, 14000], '라멘': [9000, 15000], '피자': [9000, 18000], '마라탕': [10000, 18000],
+  '김치찌개': [8000, 12000], '비빔밥': [8000, 13000], '돈까스': [9000, 16000], '초밥': [13000, 30000],
+  '떡볶이': [5000, 12000], '햄버거': [6000, 14000], '파스타': [12000, 22000], '쌀국수': [9000, 15000],
+  '치킨': [9000, 16000], '샤브샤브': [14000, 26000], '카레': [8000, 14000], '냉면': [9000, 15000],
+  '족발': [12000, 23000], '보쌈': [12000, 23000], '김밥': [3500, 7000], '순대국': [9000, 13000],
+  '칼국수': [8000, 13000], '닭갈비': [12000, 18000], '부대찌개': [10000, 17000],
+  '짜장면': [7000, 11000], '짬뽕': [9000, 14000], '탕수육': [9000, 18000], '우동': [7000, 12000],
+  '오므라이스': [9000, 15000], '회덮밥': [12000, 20000], '샌드위치': [6000, 13000], '케밥': [8000, 15000],
+}
 
 const allergyFallbackCatalog = [
   { name: '채소죽', cuisine: ['한식'], form: ['밥류', '채소류'], cooking: ['국물'], risks: [] },
@@ -184,9 +194,12 @@ const getProfilePreferences = (profile) => ({
     .filter(Boolean),
 })
 
-function makePreferenceCandidates(memberRecords) {
+function makePreferenceCandidates(memberRecords, budgetMin = 0, budgetMax = 0) {
   const preferences = Object.values(memberRecords || {}).map((member) => member.preferences).filter(Boolean)
   const total = Math.max(1, preferences.length)
+  const normalizedBudgetMin = Math.max(0, Number(budgetMin || 0))
+  const normalizedBudgetMax = Math.max(normalizedBudgetMin, Number(budgetMax || 0))
+  const hasBudget = normalizedBudgetMax > 0
   const candidates = menuPreferenceCatalog.map((menu) => {
     const menuTerms = [menu.name, ...menu.cuisine, ...menu.form, ...menu.cooking, ...menu.risks].map(normalizeFoodText)
     const blockedBy = []
@@ -222,17 +235,29 @@ function makePreferenceCandidates(memberRecords) {
     })
     const uniqueBlocked = [...new Set(blockedBy)]
     const recentMenuPenalty = Math.round((recentMatchCount / total) * 8)
+    const [priceMin, priceMax] = menuPriceRanges[menu.name] || [0, 0]
+    const budgetDistance = !hasBudget || (priceMax >= normalizedBudgetMin && priceMin <= normalizedBudgetMax)
+      ? 0
+      : priceMax < normalizedBudgetMin ? normalizedBudgetMin - priceMax : priceMin - normalizedBudgetMax
+    const budgetPenalty = Math.min(24, Math.ceil(budgetDistance / 1000) * 2)
+    const budgetMismatch = hasBudget && budgetDistance > 0
     return {
       name: menu.name,
       blocked: uniqueBlocked.length > 0,
-      score: Math.max(45, Math.min(98, Math.round(62 + preferenceScore / total + (matchedMembers / total) * 8 - recentMenuPenalty))),
+      budgetMismatch,
+      budgetDistance,
+      priceMin,
+      priceMax,
+      score: Math.max(35, Math.min(98, Math.round(62 + preferenceScore / total + (matchedMembers / total) * 8 - recentMenuPenalty - budgetPenalty))),
       reason: preferences.length
-        ? `${preferences.length}명 취향 반영 · ${matchedMembers || 0}명 선호 조건과 일치${recentMatchCount ? ` · 최근 식사 ${recentMatchCount}명 중복 감점` : ''}`
-        : '취향을 설정하면 더 정확하게 추천해요',
+        ? `${preferences.length}명 취향 반영 · 약 ${priceMin.toLocaleString('ko-KR')}~${priceMax.toLocaleString('ko-KR')}원${budgetMismatch ? ' · 예산 근접 후보' : ''}${recentMatchCount ? ` · 최근 식사 ${recentMatchCount}명 중복 감점` : ''}`
+        : `예상 가격 약 ${priceMin.toLocaleString('ko-KR')}~${priceMax.toLocaleString('ko-KR')}원`,
     }
   })
-  const safe = candidates.filter((candidate) => !candidate.blocked).sort((a, b) => b.score - a.score)
-  if (!safe.length) {
+  const allergySafe = candidates.filter((candidate) => !candidate.blocked)
+  const budgetSafe = allergySafe.filter((candidate) => !candidate.budgetMismatch)
+  const safe = (budgetSafe.length ? budgetSafe : allergySafe).sort((a, b) => a.budgetDistance - b.budgetDistance || b.score - a.score)
+  if (!allergySafe.length) {
     const avoidedTerms = preferences.flatMap((profile) => profile.avoided || []).map(normalizeFoodText).filter(Boolean)
     const fallback = allergyFallbackCatalog.filter((menu) => {
       const menuTerms = [menu.name, ...menu.cuisine, ...menu.form, ...menu.cooking].map(normalizeFoodText)
@@ -281,8 +306,8 @@ function makeApiCandidates(menuItems, restaurantItems, qualityItems) {
   const restaurants = new Map(restaurantItems.map((item) => [String(item.RSTR_ID), item]))
   const qualities = new Map(qualityItems.map((item) => [String(item.RSTR_ID), item]))
   const groups = new Map()
-  const dishKeywords = ['제육', '김치찌개', '비빔밥', '냉면', '치킨', '파스타', '햄버거', '카레', '칼국수', '닭갈비', '갈비', '족발', '보쌈', '국밥', '볶음밥']
-  const excludedKeywords = ['소주', '맥주', '와인', '막걸리', '음료', '콜라', '사이다', '커피', '에이드', '주스', '케이크', '파이']
+  const dishKeywords = ['제육', '김치찌개', '비빔밥', '냉면', '치킨', '파스타', '햄버거', '카레', '칼국수', '닭갈비', '갈비', '족발', '보쌈', '국밥', '짜장면']
+  const excludedKeywords = ['소주', '맥주', '와인', '막걸리', '음료', '콜라', '사이다', '커피', '에이드', '주스', '케이크', '파이', '볶음밥']
 
   menuItems.forEach((item) => {
     const name = cleanMenuName(item.MENU_NM)
@@ -1092,6 +1117,8 @@ function App() {
       flow: {
         stage: 0,
         mode: 'ai',
+        budgetMin: 8000,
+        budgetMax: 20000,
         selectedMenu: '',
         selectedRestaurant: null,
         updatedAt: Date.now(),
@@ -1967,6 +1994,8 @@ function RoomDetail({ room, currentUser, friends, onBack, onShare, onDelete, onL
   const isOwner = room.ownerId === currentUser.uid
   const memberEntries = Object.entries(room.memberRecords || {})
   const preferenceSignature = JSON.stringify(memberEntries.map(([uid, member]) => [uid, member.preferences || null]))
+  const roomBudgetMin = Number(room.flow?.budgetMin ?? 8000)
+  const roomBudgetMax = Number(room.flow?.budgetMax ?? 20000)
   const safeMenuNames = getSafeMenuNames(room.memberRecords)
   const rouletteMenus = [...safeMenuNames]
     .sort((a, b) => seededMenuValue(`${room.id}-roulette-${a}`) - seededMenuValue(`${room.id}-roulette-${b}`))
@@ -2055,13 +2084,13 @@ function RoomDetail({ room, currentUser, friends, onBack, onShare, onDelete, onL
   }, [stage])
 
   useEffect(() => {
-    const candidates = makePreferenceCandidates(room.memberRecords)
+    const candidates = makePreferenceCandidates(room.memberRecords, roomBudgetMin, roomBudgetMax)
     setMenuCandidates(candidates)
     setMenuApiStatus('ready')
     const preferenceCount = memberEntries.filter(([, member]) => member.preferences).length
-    setMenuApiMessage(`${preferenceCount}/${memberEntries.length}명의 취향을 반영했어요.`)
+    setMenuApiMessage(`${preferenceCount}/${memberEntries.length}명의 취향과 ${roomBudgetMin.toLocaleString('ko-KR')}~${roomBudgetMax.toLocaleString('ko-KR')}원 예산을 반영했어요.`)
     if (stage <= 2 && !room.flow?.selectedMenu && candidates[0]) setSelectedMenu(candidates[0].unavailable ? null : candidates[0].name)
-  }, [preferenceSignature])
+  }, [preferenceSignature, roomBudgetMin, roomBudgetMax])
 
   useEffect(() => {
     if (stage < 3 || !navigator.geolocation) return
@@ -2100,7 +2129,7 @@ function RoomDetail({ room, currentUser, friends, onBack, onShare, onDelete, onL
     return () => { cancelled = true }
   }, [stage, selectedMenu, userLocation?.lat, userLocation?.lng])
 
-  const stageTitles = ['대기실', '메뉴 고르기 모드', mode === 'ai' ? 'AI 메뉴 추천' : mode === 'tournament' ? '메뉴 이상형 월드컵' : mode === 'roulette' ? '메뉴 룰렛' : 'Hot Potato 먹기 도전', '주변 매장 찾기', '식사 준비 완료']
+  const stageTitles = ['대기실', '메뉴 고르기 모드', mode === 'ai' ? '맞춤 메뉴 추천' : mode === 'tournament' ? '메뉴 이상형 월드컵' : mode === 'roulette' ? '메뉴 룰렛' : 'Hot Potato 먹기 도전', '주변 매장 찾기', '식사 준비 완료']
   const tournamentPair = tournamentRoundMenus.slice(tournamentMatchIndex * 2, tournamentMatchIndex * 2 + 2)
   const tournamentRoundLabel = tournamentRoundMenus.length === 2 ? '결승' : `${tournamentRoundMenus.length}강`
   const tournamentMatchCount = Math.max(1, tournamentRoundMenus.length / 2)
@@ -2270,6 +2299,13 @@ function RoomDetail({ room, currentUser, friends, onBack, onShare, onDelete, onL
     })
   }
 
+  const changeRoomBudget = async (budgetMin, budgetMax) => {
+    if (!isOwner || stage > 1) return false
+    const min = Math.max(0, Math.round(Number(budgetMin) || 0))
+    const max = Math.max(min, Math.round(Number(budgetMax) || 0))
+    return onFlowChange({ budgetMin: min, budgetMax: max })
+  }
+
   const undoStage = () => {
     if (!isOwner) return
     if (stage === 1) moveToStage(0)
@@ -2280,9 +2316,14 @@ function RoomDetail({ room, currentUser, friends, onBack, onShare, onDelete, onL
       setSelectedMenu(mode === 'ai' && !menuCandidates[0]?.unavailable ? menuCandidates[0]?.name : null)
     }
     if (stage === 3) {
-      moveToStage(2, { selectedRestaurant: null })
+      const previousStage = mode === 'ai' ? 1 : 2
+      moveToStage(previousStage, {
+        selectedRestaurant: null,
+        ...(mode === 'ai' ? { selectedMenu: '' } : {}),
+      })
       setSelectedRestaurant(null)
       setExpandedRestaurant(null)
+      if (mode === 'ai') setSelectedMenu(null)
     }
     if (stage === 4) {
       moveToStage(3, { completedAt: null })
@@ -2357,7 +2398,7 @@ function RoomDetail({ room, currentUser, friends, onBack, onShare, onDelete, onL
             {isOwner && <button type="button" className="share-wide secondary-share" onClick={onOpenFriends}><UsersRound size={19} /> 친구 바로 초대</button>}
           </div>
         </div>
-        {roomSettingsOpen && <RoomSettingsModal room={room} currentUser={currentUser} onClose={() => setRoomSettingsOpen(false)} onLeave={onLeave} onDelete={onDelete} onTransfer={onTransfer} onChangeMode={changeRoomMode} />}
+        {roomSettingsOpen && <RoomSettingsModal room={room} currentUser={currentUser} onClose={() => setRoomSettingsOpen(false)} onLeave={onLeave} onDelete={onDelete} onTransfer={onTransfer} onChangeMode={changeRoomMode} onChangeBudget={changeRoomBudget} />}
       </main>
     )
   }
@@ -2386,11 +2427,11 @@ function RoomDetail({ room, currentUser, friends, onBack, onShare, onDelete, onL
           <div className="room-stage-copy"><span>MODE READY</span><h2>선택된 모드로 시작할까요?</h2><p>메뉴 결정 모드는 방장이 방 설정에서 변경할 수 있어요.</p></div>
           <div className="configured-mode-card">
             <span className="mode-icon"><Settings2 size={25} /></span>
-            <span><small>현재 메뉴 결정 모드</small><strong>{roomModeLabels[mode] || roomModeLabels.ai}</strong></span>
+            <span><small>현재 메뉴 결정 모드</small><strong>{roomModeLabels[mode] || roomModeLabels.ai}</strong><em>{roomBudgetMin.toLocaleString('ko-KR')}원 ~ {roomBudgetMax.toLocaleString('ko-KR')}원</em></span>
             <CheckCircle2 size={21} />
           </div>
           {isOwner && <button type="button" className="change-mode-button" onClick={() => setRoomSettingsOpen(true)}><Settings size={16} /> 방 설정에서 모드 변경</button>}
-          <button type="button" className="room-primary-button stage-next" disabled={!isOwner} onClick={startConfiguredMode}>{isOwner ? (mode === 'ai' ? 'AI 1위로 바로 매장 찾기' : `${roomModeLabels[mode]} 시작하기`) : '방장이 시작하기를 기다리는 중'} <ChevronRight size={18} /></button>
+          <button type="button" className="room-primary-button stage-next" disabled={!isOwner} onClick={startConfiguredMode}>{isOwner ? (mode === 'ai' ? '맞춤 추천 1위로 바로 매장 찾기' : `${roomModeLabels[mode]} 시작하기`) : '방장이 시작하기를 기다리는 중'} <ChevronRight size={18} /></button>
         </section>
       )}
 
@@ -2619,7 +2660,7 @@ function RoomDetail({ room, currentUser, friends, onBack, onShare, onDelete, onL
         </div>
       )}
       {isOwner && !(mode === 'competition' && stage >= 2) && <button type="button" className="room-undo-button" onClick={undoStage} aria-label="이전 단계로 돌아가기"><RotateCcw size={17} /> 실행 취소</button>}
-      {roomSettingsOpen && <RoomSettingsModal room={room} currentUser={currentUser} onClose={() => setRoomSettingsOpen(false)} onLeave={onLeave} onDelete={onDelete} onTransfer={onTransfer} onChangeMode={changeRoomMode} />}
+      {roomSettingsOpen && <RoomSettingsModal room={room} currentUser={currentUser} onClose={() => setRoomSettingsOpen(false)} onLeave={onLeave} onDelete={onDelete} onTransfer={onTransfer} onChangeMode={changeRoomMode} onChangeBudget={changeRoomBudget} />}
     </main>
   )
 }
@@ -2750,7 +2791,6 @@ function SettingsScreen({ settings, onBack, onChange, onAction, onLogout }) {
         <div className="settings-section-title"><span>ACCOUNT</span><h2>계정 관리</h2></div>
         <div className="settings-list action-list">
           <button type="button" onClick={onLogout}><span className="setting-leading"><LogOut size={18} /></span><span>로그아웃</span><ChevronRight size={18} /></button>
-          <button type="button" className="danger-row" onClick={() => onAction('회원 탈퇴 기능은 아직 연결되지 않았어요')}><span className="setting-leading"><Trash2 size={18} /></span><span>회원 탈퇴</span><ChevronRight size={18} /></button>
         </div>
       </section>
 
@@ -2876,11 +2916,14 @@ function BottomNav({ active, onChange }) {
   )
 }
 
-function RoomSettingsModal({ room, currentUser, onClose, onLeave, onDelete, onTransfer, onChangeMode }) {
+function RoomSettingsModal({ room, currentUser, onClose, onLeave, onDelete, onTransfer, onChangeMode, onChangeBudget }) {
   const isOwner = room.ownerId === currentUser.uid
   const otherMembers = Object.entries(room.memberRecords || {}).filter(([uid]) => uid !== currentUser.uid)
   const [nextOwnerId, setNextOwnerId] = useState(otherMembers[0]?.[0] || '')
   const [busy, setBusy] = useState(false)
+  const [budgetMin, setBudgetMin] = useState(String(room.flow?.budgetMin ?? 8000))
+  const [budgetMax, setBudgetMax] = useState(String(room.flow?.budgetMax ?? 20000))
+  const budgetIsValid = Number(budgetMin) >= 0 && Number(budgetMax) >= Number(budgetMin) && Number(budgetMax) > 0
 
   const run = async (action) => {
     setBusy(true)
@@ -2904,6 +2947,19 @@ function RoomSettingsModal({ room, currentUser, onClose, onLeave, onDelete, onTr
         <p>{room.name} · 코드 {room.code}</p>
 
         {isOwner && (
+          <div className="room-budget-setting">
+            <strong>1인당 예산 범위</strong>
+            <p>{Number(room.flow?.stage || 0) > 1 ? '진행 중에는 예산을 변경할 수 없어요.' : '맞춤 메뉴 추천에서 예상 가격을 비교할 때 사용해요.'}</p>
+            <div className="budget-range-inputs">
+              <label><span>최소</span><input type="number" min="0" step="1000" inputMode="numeric" value={budgetMin} disabled={busy || Number(room.flow?.stage || 0) > 1} onChange={(event) => setBudgetMin(event.target.value)} /><em>원</em></label>
+              <b>~</b>
+              <label><span>최대</span><input type="number" min="1000" step="1000" inputMode="numeric" value={budgetMax} disabled={busy || Number(room.flow?.stage || 0) > 1} onChange={(event) => setBudgetMax(event.target.value)} /><em>원</em></label>
+            </div>
+            <button type="button" className="budget-save-button" disabled={busy || !budgetIsValid || Number(room.flow?.stage || 0) > 1} onClick={() => run(() => onChangeBudget(budgetMin, budgetMax))}>예산 저장</button>
+          </div>
+        )}
+
+        {isOwner && (
           <div className="room-mode-setting">
             <strong>메뉴 결정 모드</strong>
             <p>{Number(room.flow?.stage || 0) > 1 ? '진행 중에는 모드를 변경할 수 없어요.' : '방장이 사용할 모드를 선택해주세요.'}</p>
@@ -2916,7 +2972,7 @@ function RoomSettingsModal({ room, currentUser, onClose, onLeave, onDelete, onTr
                   disabled={busy || Number(room.flow?.stage || 0) > 1}
                   onClick={() => run(() => onChangeMode(value))}
                 >
-                  <span>{value === 'ai' ? 'AI' : value === 'tournament' ? 'VS' : value === 'roulette' ? '↻' : '🔥'}</span>
+                  <span>{value === 'ai' ? '추천' : value === 'tournament' ? 'VS' : value === 'roulette' ? '↻' : '🔥'}</span>
                   <b>{label}</b>
                   <CheckCircle2 size={16} />
                 </button>
