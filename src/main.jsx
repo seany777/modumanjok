@@ -161,6 +161,7 @@ function makeApiCandidates(menuItems, restaurantItems, qualityItems) {
 
 let naverMapLoader
 let redtableBundleLoader
+const naverRestaurantLoaders = new Map()
 const REDTABLE_CACHE_KEY = 'modumanjok-redtable-v1'
 const REDTABLE_CACHE_AGE = 6 * 60 * 60 * 1000
 
@@ -191,24 +192,106 @@ function loadRedtableBundle() {
   return redtableBundleLoader
 }
 
+function loadNaverRestaurants(menu, area) {
+  const queryText = `${area} ${menu} 맛집`.trim()
+  const cacheKey = `modumanjok-naver-local:${queryText}`
+  try {
+    const cached = JSON.parse(sessionStorage.getItem(cacheKey) || 'null')
+    if (cached?.savedAt > Date.now() - 30 * 60 * 1000) return Promise.resolve({ ...cached, area })
+  } catch {
+    sessionStorage.removeItem(cacheKey)
+  }
+  if (naverRestaurantLoaders.has(cacheKey)) return naverRestaurantLoaders.get(cacheKey)
+  const loader = fetch(`/api/naver-local?query=${encodeURIComponent(queryText)}`)
+    .then((result) => result.json().then((data) => {
+      if (!result.ok) throw new Error(data.error || '네이버 식당 검색에 실패했습니다.')
+      const value = { items: data.items || [], area, savedAt: Date.now() }
+      try { sessionStorage.setItem(cacheKey, JSON.stringify(value)) } catch { /* memory cache only */ }
+      return value
+    }))
+    .finally(() => naverRestaurantLoaders.delete(cacheKey))
+  naverRestaurantLoaders.set(cacheKey, loader)
+  return loader
+}
+
+function reverseGeocodeArea(location, keyId) {
+  if (!location || !keyId) return Promise.reject(new Error('위치 또는 지도 키가 없습니다.'))
+  return loadNaverMaps(keyId).then((maps) => new Promise((resolve, reject) => {
+    maps.Service.reverseGeocode({
+      coords: new maps.LatLng(location.lat, location.lng),
+      orders: 'admcode,legalcode',
+    }, (status, response) => {
+      if (status !== maps.Service.Status.OK) {
+        reject(new Error('현재 위치의 주소를 확인하지 못했어요.'))
+        return
+      }
+      const results = response?.v2?.results || []
+      const region = (results.find((item) => item.name === 'admcode') || results[0])?.region
+      if (!region) {
+        reject(new Error('현재 위치의 행정구역 정보가 없어요.'))
+        return
+      }
+      const area1 = region.area1?.name || ''
+      const area2 = region.area2?.name || ''
+      const area3 = region.area3?.name || ''
+      resolve({
+        query: [area2, area3].filter(Boolean).join(' ') || area1,
+        label: [area1, area2, area3].filter(Boolean).join(' '),
+      })
+    })
+  }))
+}
+
 function loadNaverMaps(keyId) {
-  if (window.naver?.maps) return Promise.resolve(window.naver.maps)
+  if (window.naver?.maps?.Service) return Promise.resolve(window.naver.maps)
   if (naverMapLoader) return naverMapLoader
   naverMapLoader = new Promise((resolve, reject) => {
     const callbackName = `initModumanjokMap${Date.now()}`
-    window[callbackName] = () => {
+    let settled = false
+    const finish = () => {
+      if (settled) return
+      if (!window.naver?.maps?.Service) {
+        settled = true
+        reject(new Error('네이버 지도 위치 변환 모듈 초기화에 실패했습니다.'))
+        return
+      }
+      settled = true
+      clearTimeout(timeout)
       delete window[callbackName]
       resolve(window.naver.maps)
     }
+    window[callbackName] = () => {
+      finish()
+    }
     window.navermap_authFailure = () => {
       window.dispatchEvent(new Event('navermap-auth-failure'))
-      reject(new Error('네이버 지도 인증에 실패했습니다.'))
+      if (!settled) {
+        settled = true
+        clearTimeout(timeout)
+        reject(new Error('네이버 지도 인증에 실패했습니다.'))
+      }
     }
     const script = document.createElement('script')
-    script.src = `https://oapi.map.naver.com/openapi/v3/maps.js?ncpKeyId=${encodeURIComponent(keyId)}&callback=${callbackName}`
+    script.src = `https://oapi.map.naver.com/openapi/v3/maps.js?ncpKeyId=${encodeURIComponent(keyId)}&submodules=geocoder&callback=${callbackName}`
     script.async = true
-    script.onerror = () => reject(new Error('네이버 지도를 불러오지 못했습니다.'))
+    script.onload = () => setTimeout(finish, 0)
+    script.onerror = () => {
+      if (!settled) {
+        settled = true
+        clearTimeout(timeout)
+        reject(new Error('네이버 지도를 불러오지 못했습니다.'))
+      }
+    }
+    const timeout = setTimeout(() => {
+      if (!settled) {
+        settled = true
+        reject(new Error('네이버 지도 응답이 없습니다. Web 서비스 URL과 키를 확인해주세요.'))
+      }
+    }, 8000)
     document.head.appendChild(script)
+  }).catch((error) => {
+    naverMapLoader = null
+    throw error
   })
   return naverMapLoader
 }
@@ -222,7 +305,7 @@ function NaverRestaurantMap({ restaurants, selectedRestaurant, userLocation }) {
 
   useEffect(() => {
     const locations = restaurants.filter((restaurant) => Number.isFinite(restaurant.lat) && Number.isFinite(restaurant.lng))
-    if (!keyId || !mapElement.current || locations.length === 0) return
+    if (!keyId || !mapElement.current || (!locations.length && !userLocation)) return
     let disposed = false
     const handleAuthFailure = () => {
       if (!disposed) setMapError('네이버 지도 인증에 실패했습니다. 콘솔의 Web 서비스 URL을 확인해주세요.')
@@ -231,7 +314,7 @@ function NaverRestaurantMap({ restaurants, selectedRestaurant, userLocation }) {
 
     loadNaverMaps(keyId).then((maps) => {
       if (disposed || !mapElement.current) return
-      const focus = locations[0]
+      const focus = userLocation || locations[0]
       const map = mapInstance.current || new maps.Map(mapElement.current, {
           center: new maps.LatLng(focus.lat, focus.lng),
           zoom: 14,
@@ -256,7 +339,13 @@ function NaverRestaurantMap({ restaurants, selectedRestaurant, userLocation }) {
           icon: { content: '<div class="current-location-marker"></div>', anchor: new maps.Point(8, 8) },
         }))
       }
-      if (locations.length > 1 || userLocation) map.fitBounds(bounds, { top: 30, right: 30, bottom: 30, left: 30 })
+      if (locations.length > 0 && userLocation) map.fitBounds(bounds, { top: 30, right: 30, bottom: 30, left: 30 })
+      else if (locations.length > 1) map.fitBounds(bounds, { top: 30, right: 30, bottom: 30, left: 30 })
+      else if (userLocation) {
+        map.setCenter(new maps.LatLng(userLocation.lat, userLocation.lng))
+        map.setZoom(14)
+      }
+      setTimeout(() => maps.Event.trigger(map, 'resize'), 100)
     }).catch((error) => setMapError(error.message))
 
     return () => {
@@ -290,9 +379,24 @@ const defaultUserProfile = {
   cooking: [],
   avoided: [],
   allergies: [],
+  menuHistory: [],
 }
 
 const PROFILE_DATA_VERSION = 2
+const SETTINGS_STORAGE_KEY = 'modumanjok-app-settings'
+const defaultAppSettings = {
+  theme: 'light',
+  voteNotifications: true,
+  profileVisibility: 'friends',
+}
+
+const loadSavedSettings = () => {
+  try {
+    return { ...defaultAppSettings, ...JSON.parse(localStorage.getItem(SETTINGS_STORAGE_KEY) || '{}') }
+  } catch {
+    return defaultAppSettings
+  }
+}
 
 const roomColors = ['lime', 'coral', 'sky']
 
@@ -314,6 +418,7 @@ function App() {
   const [authBusy, setAuthBusy] = useState(true)
   const [roomsLoading, setRoomsLoading] = useState(true)
   const [roomsLoadStatus, setRoomsLoadStatus] = useState('loading')
+  const [roomsLoadError, setRoomsLoadError] = useState('')
   const [authError, setAuthError] = useState('')
   const [activeTab, setActiveTab] = useState('home')
   const [rooms, setRooms] = useState([])
@@ -327,11 +432,7 @@ function App() {
   const [profileSheet, setProfileSheet] = useState(null)
   const [friendSheetRoom, setFriendSheetRoom] = useState(null)
   const [pendingJoinCode, setPendingJoinCode] = useState('')
-  const [appSettings, setAppSettings] = useState({
-    theme: 'system',
-    voteNotifications: true,
-    profileVisibility: 'friends',
-  })
+  const [appSettings, setAppSettings] = useState(loadSavedSettings)
   const [userProfile, setUserProfile] = useState(defaultUserProfile)
 
   const applyRoute = (pathname = window.location.pathname, search = window.location.search) => {
@@ -419,9 +520,10 @@ function App() {
       document.documentElement.dataset.theme = resolvedTheme
     }
     applyTheme()
+    localStorage.setItem(SETTINGS_STORAGE_KEY, JSON.stringify(appSettings))
     media.addEventListener?.('change', applyTheme)
     return () => media.removeEventListener?.('change', applyTheme)
-  }, [appSettings.theme])
+  }, [appSettings])
 
   useEffect(() => onAuthStateChanged(auth, async (user) => {
     setAuthUser(user)
@@ -446,6 +548,7 @@ function App() {
 
       if (snapshot.exists()) {
         const saved = snapshot.val()
+        if (saved.settings) setAppSettings({ ...defaultAppSettings, ...saved.settings })
         if (saved.profileDataVersion !== PROFILE_DATA_VERSION) {
           await update(userRef, {
             ...googleProfile,
@@ -468,6 +571,7 @@ function App() {
           cooking: saved.cooking || googleProfile.cooking,
           avoided: saved.avoided || googleProfile.avoided,
           allergies: saved.allergies || googleProfile.allergies,
+          menuHistory: Array.isArray(saved.menuHistory) ? saved.menuHistory : Object.values(saved.menuHistory || {}),
         })
         if (!saved.name || saved.name === '<이름>') {
           await update(userRef, { name: googleProfile.name, updatedAt: serverTimestamp() })
@@ -478,6 +582,7 @@ function App() {
           uid: user.uid,
           email: user.email || '',
           profileDataVersion: PROFILE_DATA_VERSION,
+          settings: appSettings,
           createdAt: serverTimestamp(),
           updatedAt: serverTimestamp(),
         })
@@ -496,11 +601,13 @@ function App() {
       setFriends([])
       setRoomsLoading(false)
       setRoomsLoadStatus('idle')
+      setRoomsLoadError('')
       return undefined
     }
 
     setRoomsLoading(true)
     setRoomsLoadStatus('loading')
+    setRoomsLoadError('')
     const unsubscribeRooms = onValue(ref(database, 'rooms'), (snapshot) => {
       try {
         const nextRooms = Object.entries(snapshot.val() || {})
@@ -509,6 +616,7 @@ function App() {
           .sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0))
         setRooms(nextRooms)
         setRoomsLoadStatus('ready')
+        setRoomsLoadError('')
       } catch (error) {
         console.error('Room sync failed:', error)
         setToast('방 목록을 불러오지 못했어요')
@@ -520,6 +628,7 @@ function App() {
       setRooms([])
       setRoomsLoading(false)
       setRoomsLoadStatus('error')
+      setRoomsLoadError(error.code || error.message || 'UNKNOWN')
       setToast(error.code === 'PERMISSION_DENIED' ? '방 DB 읽기 권한이 없어요. Firebase 규칙을 게시해주세요' : '방 목록 연결에 실패했어요')
     })
 
@@ -532,6 +641,21 @@ function App() {
       unsubscribeFriends()
     }
   }, [authUser])
+
+  const saveAppSetting = (key, value) => {
+    const nextSettings = { ...appSettings, [key]: value }
+    setAppSettings(nextSettings)
+    localStorage.setItem(SETTINGS_STORAGE_KEY, JSON.stringify(nextSettings))
+    if (auth.currentUser) {
+      update(ref(database, `users/${auth.currentUser.uid}/settings`), {
+        [key]: value,
+        updatedAt: serverTimestamp(),
+      }).catch((error) => {
+        console.error('Settings save failed:', error)
+        setToast('설정은 이 기기에 저장됐지만 DB 동기화에 실패했어요')
+      })
+    }
+  }
 
   useEffect(() => {
     if (!selectedRoom) return
@@ -632,6 +756,13 @@ function App() {
           joinedAt: Date.now(),
         },
       },
+      flow: {
+        stage: 0,
+        mode: 'ai',
+        selectedMenu: '',
+        selectedRestaurant: null,
+        updatedAt: Date.now(),
+      },
     }
     try {
       await update(ref(database), {
@@ -643,7 +774,7 @@ function App() {
       setToast('새 방을 만들었어요')
     } catch (error) {
       console.error('Room create failed:', error)
-      setToast('방 생성에 실패했어요. DB 규칙을 확인해주세요')
+      setToast(error.code === 'PERMISSION_DENIED' ? '방 생성 권한이 없어요. Firebase 규칙을 게시해주세요' : `방 생성 실패 · ${error.code || 'DB 연결 확인'}`)
     }
   }
 
@@ -798,6 +929,50 @@ function App() {
     }
   }
 
+  const updateRoomFlow = async (room, patch) => {
+    if (!authUser || room.ownerId !== authUser.uid) return false
+    try {
+      await update(ref(database, `rooms/${room.id}/flow`), {
+        ...patch,
+        updatedAt: Date.now(),
+      })
+      return true
+    } catch (error) {
+      console.error('Room flow sync failed:', error)
+      setToast('진행 상태 저장에 실패했어요')
+      return false
+    }
+  }
+
+  const recordMenuHistory = async (room) => {
+    if (!authUser || !room?.flow?.selectedMenu) return
+    const historyRef = ref(database, `users/${authUser.uid}/menuHistory`)
+    try {
+      const snapshot = await get(historyRef)
+      const current = Array.isArray(snapshot.val()) ? snapshot.val() : Object.values(snapshot.val() || {})
+      const entry = {
+        roomId: room.id,
+        roomName: room.name,
+        menu: room.flow.selectedMenu,
+        restaurant: room.flow.selectedRestaurant?.name || '',
+        completedAt: Number(room.flow.completedAt || Date.now()),
+      }
+      const next = [entry, ...current.filter((item) => item?.roomId !== room.id)]
+        .sort((a, b) => Number(b.completedAt || 0) - Number(a.completedAt || 0))
+        .slice(0, 5)
+      await set(historyRef, next)
+      setUserProfile((profile) => ({ ...profile, menuHistory: next }))
+    } catch (error) {
+      console.error('Menu history save failed:', error)
+      setToast('메뉴 기록 저장에 실패했어요')
+    }
+  }
+
+  useEffect(() => {
+    if (selectedRoom?.flow?.stage !== 4 || !selectedRoom.flow.selectedMenu) return
+    recordMenuHistory(selectedRoom)
+  }, [selectedRoom?.id, selectedRoom?.flow?.stage, selectedRoom?.flow?.selectedMenu])
+
   if (authUser === undefined) {
     return (
       <AppFrame>
@@ -827,6 +1002,7 @@ function App() {
           onLeave={(nextOwnerId) => leaveRoom(selectedRoom, nextOwnerId)}
           onTransfer={(nextOwnerId) => transferOwner(selectedRoom, nextOwnerId)}
           onOpenFriends={() => setFriendSheetRoom(selectedRoom)}
+          onFlowChange={(patch) => updateRoomFlow(selectedRoom, patch)}
         />
         {shareRoom && <ShareModal room={shareRoom} onClose={() => setShareRoom(null)} onToast={setToast} />}
         {friendSheetRoom && (
@@ -845,7 +1021,7 @@ function App() {
 
   return (
     <AppFrame>
-      <main className={`page ${activeTab === 'rooms' ? 'rooms-page' : ''}`}>
+      <main className={`page ${activeTab === 'rooms' ? 'rooms-page' : ''} ${activeTab === 'home' ? 'home-page' : ''}`}>
         {activeTab === 'home' && (
           <HomeScreen
             rooms={rooms}
@@ -859,6 +1035,7 @@ function App() {
             rooms={rooms}
             loading={roomsLoading}
             loadStatus={roomsLoadStatus}
+            loadError={roomsLoadError}
             profileName={userProfile.name}
             onOpenRoom={openRoom}
             onShareRoom={setShareRoom}
@@ -872,7 +1049,7 @@ function App() {
             profile={userProfile}
             settings={appSettings}
             onBack={() => navigateTo('/profile')}
-            onChange={(key, value) => setAppSettings((current) => ({ ...current, [key]: value }))}
+            onChange={saveAppSetting}
             onAction={setToast}
             onLogout={logout}
           />
@@ -1077,7 +1254,7 @@ function HomeAdCarousel({ onOpenCreate }) {
   )
 }
 
-function RoomsScreen({ rooms, loading, loadStatus, profileName, onOpenRoom, onShareRoom, onCreate, onJoin }) {
+function RoomsScreen({ rooms, loading, loadStatus, loadError, profileName, onOpenRoom, onShareRoom, onCreate, onJoin }) {
   const [query, setQuery] = useState('')
   const filtered = rooms.filter((room) => room.name.includes(query))
   return (
@@ -1106,7 +1283,7 @@ function RoomsScreen({ rooms, loading, loadStatus, profileName, onOpenRoom, onSh
         <div className={`room-load-status ${loadStatus}`} role="status">
           {loadStatus === 'loading' && <><span className="mini-spinner" /> 방 불러오는 중</>}
           {loadStatus === 'ready' && <><CheckCircle2 size={14} /> 방 불러오기 완료</>}
-          {loadStatus === 'error' && <><AlertTriangle size={14} /> DB 연결 실패 · Firebase 규칙 확인</>}
+          {loadStatus === 'error' && <><AlertTriangle size={14} /> DB 연결 실패 · {loadError}</>}
         </div>
         <div className="room-list-heading">
           <p>총 <strong>{filtered.length}</strong>개의 방</p>
@@ -1168,11 +1345,11 @@ function RoomCard({ room, onOpen, onLongPress }) {
   )
 }
 
-function RoomDetail({ room, currentUser, friends, onBack, onShare, onDelete, onLeave, onTransfer, onOpenFriends }) {
+function RoomDetail({ room, currentUser, friends, onBack, onShare, onDelete, onLeave, onTransfer, onOpenFriends, onFlowChange }) {
   const pageRef = useRef(null)
-  const [stage, setStage] = useState(0)
-  const [mode, setMode] = useState('ai')
-  const [selectedMenu, setSelectedMenu] = useState(aiMenuCandidates[0].name)
+  const [stage, setStage] = useState(Number(room.flow?.stage || 0))
+  const [mode, setMode] = useState(room.flow?.mode || 'ai')
+  const [selectedMenu, setSelectedMenu] = useState(room.flow?.selectedMenu || aiMenuCandidates[0].name)
   const [menuCandidates, setMenuCandidates] = useState(aiMenuCandidates)
   const [menuApiStatus, setMenuApiStatus] = useState('idle')
   const [menuApiMessage, setMenuApiMessage] = useState('')
@@ -1181,7 +1358,11 @@ function RoomDetail({ room, currentUser, friends, onBack, onShare, onDelete, onL
   const [tournamentRoundWinners, setTournamentRoundWinners] = useState([])
   const [tournamentMatchIndex, setTournamentMatchIndex] = useState(0)
   const [tournamentComplete, setTournamentComplete] = useState(false)
-  const [selectedRestaurant, setSelectedRestaurant] = useState(null)
+  const [selectedRestaurant, setSelectedRestaurant] = useState(room.flow?.selectedRestaurant || null)
+  const [naverRestaurants, setNaverRestaurants] = useState([])
+  const [restaurantSource, setRestaurantSource] = useState('location')
+  const [restaurantMessage, setRestaurantMessage] = useState('')
+  const [currentArea, setCurrentArea] = useState('')
   const [expandedRestaurant, setExpandedRestaurant] = useState(null)
   const [confirmDelete, setConfirmDelete] = useState(false)
   const [roomSettingsOpen, setRoomSettingsOpen] = useState(false)
@@ -1193,6 +1374,14 @@ function RoomDetail({ room, currentUser, friends, onBack, onShare, onDelete, onL
   const transitionDirection = stage >= previousStage.current ? 'forward' : 'backward'
   const isOwner = room.ownerId === currentUser.uid
   const memberEntries = Object.entries(room.memberRecords || {})
+
+  useEffect(() => {
+    const flow = room.flow || {}
+    setStage(Number(flow.stage || 0))
+    setMode(flow.mode || 'ai')
+    if (flow.selectedMenu) setSelectedMenu(flow.selectedMenu)
+    if (flow.selectedRestaurant) setSelectedRestaurant(flow.selectedRestaurant)
+  }, [room.flow?.stage, room.flow?.mode, room.flow?.selectedMenu, room.flow?.updatedAt])
 
   useEffect(() => {
     pageRef.current?.scrollTo({ top: 0, behavior: 'auto' })
@@ -1226,12 +1415,40 @@ function RoomDetail({ room, currentUser, friends, onBack, onShare, onDelete, onL
     )
   }, [stage])
 
+  useEffect(() => {
+    if (stage !== 3 || !selectedMenu || !userLocation) return
+    let cancelled = false
+    const keyId = import.meta.env.VITE_NAVER_MAP_NCP_KEY_ID
+    setRestaurantSource('loading')
+    setRestaurantMessage('네이버에서 현재 위치의 주소를 확인하는 중이에요.')
+    reverseGeocodeArea(userLocation, keyId).then(({ query: areaQuery, label }) => {
+      if (cancelled) return null
+      setCurrentArea(label)
+      setRestaurantMessage(`${label} 주변 식당을 찾는 중이에요.`)
+      return loadNaverRestaurants(selectedMenu, areaQuery)
+    }).then((result) => {
+      if (!result || cancelled) return
+      const { items } = result
+      if (cancelled) return
+      if (!items.length) throw new Error(`${currentArea || '현재 지역'} 검색 결과가 없어요.`)
+      setNaverRestaurants(items)
+      setRestaurantSource('naver')
+      setRestaurantMessage('현재 위치의 행정구역을 기준으로 찾은 네이버 검색 결과예요.')
+    }).catch((error) => {
+      if (cancelled) return
+      setNaverRestaurants([])
+      setRestaurantSource('error')
+      setRestaurantMessage(error.message)
+    })
+    return () => { cancelled = true }
+  }, [stage, selectedMenu, userLocation?.lat, userLocation?.lng])
+
   const stageTitles = ['대기실', '메뉴 고르기 모드', mode === 'ai' ? 'AI 메뉴 추천' : '메뉴 이상형 월드컵', '주변 매장 찾기', '식사 준비 완료']
   const tournamentPair = tournamentRoundMenus.slice(tournamentMatchIndex * 2, tournamentMatchIndex * 2 + 2)
   const tournamentRoundLabel = tournamentRoundMenus.length === 2 ? '결승' : `${tournamentRoundMenus.length}강`
   const tournamentMatchCount = Math.max(1, tournamentRoundMenus.length / 2)
   const selectedCandidate = menuCandidates.find((candidate) => candidate.name === selectedMenu)
-  const restaurantOptions = selectedCandidate?.restaurants?.length ? selectedCandidate.restaurants : sampleRestaurants
+  const restaurantOptions = naverRestaurants
 
   const resetTournament = () => {
     setTournamentRoundMenus(tournamentMenus)
@@ -1241,9 +1458,17 @@ function RoomDetail({ room, currentUser, friends, onBack, onShare, onDelete, onL
   }
 
   const selectMode = (nextMode) => {
+    if (!isOwner) return
     setMode(nextMode)
     setSelectedMenu(nextMode === 'ai' ? menuCandidates[0].name : null)
     resetTournament()
+    onFlowChange({ mode: nextMode, selectedMenu: nextMode === 'ai' ? menuCandidates[0].name : '' })
+  }
+
+  const moveToStage = (nextStage, extra = {}) => {
+    if (!isOwner) return
+    setStage(nextStage)
+    onFlowChange({ stage: nextStage, mode, selectedMenu: selectedMenu || '', ...extra })
   }
 
   const pickTournamentMenu = (menu) => {
@@ -1268,19 +1493,20 @@ function RoomDetail({ room, currentUser, friends, onBack, onShare, onDelete, onL
   }
 
   const undoStage = () => {
-    if (stage === 1) setStage(0)
+    if (!isOwner) return
+    if (stage === 1) moveToStage(0)
     if (stage === 2) {
-      setStage(1)
+      moveToStage(1, { selectedMenu: mode === 'ai' ? menuCandidates[0].name : '' })
       resetTournament()
       setSelectedMenu(mode === 'ai' ? menuCandidates[0].name : null)
     }
     if (stage === 3) {
-      setStage(2)
+      moveToStage(2, { selectedRestaurant: null })
       setSelectedRestaurant(null)
       setExpandedRestaurant(null)
     }
     if (stage === 4) {
-      setStage(3)
+      moveToStage(3, { completedAt: null })
       setConfirmDelete(false)
     }
   }
@@ -1345,7 +1571,7 @@ function RoomDetail({ room, currentUser, friends, onBack, onShare, onDelete, onL
           </section>
           <section className="lobby-ready-card">
             <div><UsersRound size={20} /><span><strong>{room.members.length}명 모두 참여했어요</strong><small>방장이 시작하면 1단계로 이동합니다.</small></span></div>
-            <button type="button" className="room-primary-button" disabled={!isOwner} onClick={() => setStage(1)}><Play size={18} fill="currentColor" /> {isOwner ? '시작하기' : '방장이 시작하기를 기다리는 중'}</button>
+            <button type="button" className="room-primary-button" disabled={!isOwner} onClick={() => moveToStage(1, { mode: 'ai', selectedMenu: menuCandidates[0]?.name || '' })}><Play size={18} fill="currentColor" /> {isOwner ? '시작하기' : '방장이 시작하기를 기다리는 중'}</button>
           </section>
           <div className="lobby-invite-actions">
             <button type="button" className="share-wide secondary-share" onClick={onShare}><QrCode size={19} /> 초대 코드 보기</button>
@@ -1391,7 +1617,7 @@ function RoomDetail({ room, currentUser, friends, onBack, onShare, onDelete, onL
               <CheckCircle2 size={21} />
             </button>
           </div>
-          <button type="button" className="room-primary-button stage-next" onClick={() => setStage(2)}>{mode === 'ai' ? 'AI 추천 시작하기' : '이상형 월드컵 시작하기'} <ChevronRight size={18} /></button>
+          <button type="button" className="room-primary-button stage-next" disabled={!isOwner} onClick={() => moveToStage(2)}>{isOwner ? (mode === 'ai' ? 'AI 추천 시작하기' : '이상형 월드컵 시작하기') : '방장이 모드를 선택하고 있어요'} <ChevronRight size={18} /></button>
         </section>
       )}
 
@@ -1411,7 +1637,7 @@ function RoomDetail({ room, currentUser, friends, onBack, onShare, onDelete, onL
             {menuApiStatus === 'ready' ? <CheckCircle2 size={14} /> : menuApiStatus === 'fallback' ? <AlertTriangle size={14} /> : <Info size={14} />}
             {menuApiStatus === 'ready' ? '서울관광재단 음식·식당 데이터가 적용됐어요.' : menuApiStatus === 'fallback' ? `${menuApiMessage} 예시 메뉴를 표시합니다.` : '연결 전에는 예시 추천이 표시됩니다.'}
           </p>
-          <button type="button" className="room-primary-button stage-next" onClick={() => setStage(3)} disabled={!selectedMenu || menuApiStatus === 'loading'}>{menuApiStatus === 'loading' ? '실제 메뉴 불러오는 중' : `${selectedMenu}으로 결정`} <ChevronRight size={18} /></button>
+          <button type="button" className="room-primary-button stage-next" onClick={() => moveToStage(3, { selectedMenu })} disabled={!isOwner || !selectedMenu || menuApiStatus === 'loading'}>{!isOwner ? '방장이 메뉴를 결정하고 있어요' : menuApiStatus === 'loading' ? '실제 메뉴 불러오는 중' : `${selectedMenu}으로 결정`} <ChevronRight size={18} /></button>
         </section>
       )}
 
@@ -1434,7 +1660,7 @@ function RoomDetail({ room, currentUser, friends, onBack, onShare, onDelete, onL
           ) : (
             <div className="tournament-winner">
               <span><Trophy size={32} /></span><small>모임 합산 1위</small><h2>{selectedMenu}</h2><p>가장 많은 선택을 받은 메뉴예요.</p>
-              <button type="button" className="room-primary-button" onClick={() => setStage(3)}>이 메뉴로 매장 찾기 <ChevronRight size={18} /></button>
+              <button type="button" className="room-primary-button" disabled={!isOwner} onClick={() => moveToStage(3, { selectedMenu })}>{isOwner ? '이 메뉴로 매장 찾기' : '방장의 결정을 기다리는 중'} <ChevronRight size={18} /></button>
             </div>
           )}
         </section>
@@ -1443,7 +1669,8 @@ function RoomDetail({ room, currentUser, friends, onBack, onShare, onDelete, onL
       {stage === 3 && (
         <section className="room-stage-section">
           <div className="selected-menu-banner"><span><CheckCircle2 size={22} /></span><div><small>선택한 메뉴</small><strong>{selectedMenu}</strong></div></div>
-          <div className="location-line"><Navigation size={16} /><span>{userLocation ? '현재 위치 기준 거리' : '현재 위치 확인 전'}</span><small>{userLocation ? '위치 사용 중' : '위치 권한 필요'}</small></div>
+          <div className="location-line"><Navigation size={16} /><span>{userLocation ? '내 현재 위치 기준 거리' : '현재 위치 확인 전'}</span><small>{userLocation ? `${userLocation.lat.toFixed(3)}, ${userLocation.lng.toFixed(3)}` : '위치 권한 필요'}</small></div>
+          {userLocation && <p className={`data-range-note ${restaurantSource}`}><Info size={13} /> {currentArea && <strong>{currentArea}</strong>} {restaurantMessage || '현재 위치를 식당 검색과 거리 계산에 반영하고 있어요.'}</p>}
           <NaverRestaurantMap restaurants={restaurantOptions} selectedRestaurant={selectedRestaurant} userLocation={userLocation} />
           <div className="restaurant-list">
             {restaurantOptions.map((restaurant, index) => {
@@ -1463,16 +1690,18 @@ function RoomDetail({ room, currentUser, friends, onBack, onShare, onDelete, onL
                     <div className="restaurant-details">
                       <p><MapPin size={15} /> {restaurant.address}</p>
                       {restaurant.phone && <p>전화 {restaurant.phone}</p>}
-                      <p>{restaurant.lat ? '서울관광재단 식당 정보와 현재 위치를 기준으로 계산했어요.' : 'API 연결 전 예시 추천입니다.'}</p>
-                      <a href={`https://map.naver.com/p/search/${encodeURIComponent(`${restaurant.name} ${restaurant.address}`)}`} target="_blank" rel="noreferrer">네이버 지도에서 자세히 보기 <ExternalLink size={14} /></a>
+                      <p>{restaurantSource === 'naver' ? '네이버 지역 검색 결과이며 평점은 제공되지 않아요.' : restaurant.lat ? '현재 서울 지역만 표시됩니다. 거리는 내 현재 위치를 기준으로 계산했어요.' : 'API 연결 전 예시 추천입니다.'}</p>
+                      <a href={restaurant.link || `https://map.naver.com/p/search/${encodeURIComponent(`${restaurant.name} ${restaurant.address}`)}`} target="_blank" rel="noreferrer">네이버 지도에서 자세히 보기 <ExternalLink size={14} /></a>
                     </div>
                   )}
                 </article>
               )
             })}
+            {!restaurantOptions.length && restaurantSource === 'loading' && <div className="restaurant-empty"><span className="mini-spinner" /> 주변 식당을 불러오는 중이에요.</div>}
+            {!restaurantOptions.length && restaurantSource === 'error' && <div className="restaurant-empty error"><AlertTriangle size={18} /><span>{restaurantMessage}<small>네이버 Maps의 Reverse Geocoding과 NAVER API HUB 지역 검색 설정을 확인해주세요.</small></span></div>}
           </div>
-          <p className="prototype-note"><Info size={14} /> 별점은 제공된 네이버 평점이며, 없는 매장은 별점 없음으로 표시됩니다.</p>
-          <button type="button" className="room-primary-button stage-next" disabled={!selectedRestaurant} onClick={() => setStage(4)}>{selectedRestaurant ? `${selectedRestaurant.name}으로 결정` : '매장을 선택해주세요'} <ChevronRight size={18} /></button>
+          <p className="prototype-note"><Info size={14} /> 네이버 지역 검색 API는 별점을 제공하지 않아 별점 없음으로 표시합니다.</p>
+          <button type="button" className="room-primary-button stage-next" disabled={!isOwner || !selectedRestaurant} onClick={() => moveToStage(4, { selectedRestaurant, completedAt: Date.now() })}>{!isOwner ? '방장이 매장을 결정하고 있어요' : selectedRestaurant ? `${selectedRestaurant.name}으로 결정` : '매장을 선택해주세요'} <ChevronRight size={18} /></button>
         </section>
       )}
 
@@ -1505,13 +1734,16 @@ function RoomDetail({ room, currentUser, friends, onBack, onShare, onDelete, onL
           <span>{pullBack.armed ? '이전으로 갈까요?' : '조금 더 위로 당겨주세요'}</span>
         </div>
       )}
-      <button type="button" className="room-undo-button" onClick={undoStage} aria-label="이전 단계로 돌아가기"><RotateCcw size={17} /> 실행 취소</button>
+      {isOwner && <button type="button" className="room-undo-button" onClick={undoStage} aria-label="이전 단계로 돌아가기"><RotateCcw size={17} /> 실행 취소</button>}
       {roomSettingsOpen && <RoomSettingsModal room={room} currentUser={currentUser} onClose={() => setRoomSettingsOpen(false)} onLeave={onLeave} onDelete={onDelete} onTransfer={onTransfer} />}
     </main>
   )
 }
 
 function ProfileScreen({ profile, onOpenSettings, onEditProfile, onEditTaste }) {
+  const menuHistory = [...(profile.menuHistory || [])]
+    .sort((a, b) => Number(b.completedAt || 0) - Number(a.completedAt || 0))
+    .slice(0, 5)
   return (
     <>
       <Header
@@ -1560,7 +1792,12 @@ function ProfileScreen({ profile, onOpenSettings, onEditProfile, onEditTaste }) 
           <History size={20} />
         </div>
         <div className="simple-menu-history" aria-label="최근 먹은 메뉴">
-          <div className="empty-menu-history">아직 결정한 메뉴가 없어요.</div>
+          {menuHistory.length ? menuHistory.map((item, index) => (
+            <div className="simple-history-item" key={`${item.roomId}-${item.completedAt}`}>
+              <span>{index + 1}</span>
+              <div><strong>{item.menu}</strong><small>{item.restaurant || item.roomName || '모임에서 결정한 메뉴'}</small></div>
+            </div>
+          )) : <div className="empty-menu-history">아직 결정한 메뉴가 없어요.</div>}
         </div>
       </section>
     </>
@@ -1859,7 +2096,7 @@ function ShareModal({ room, onClose, onToast }) {
         <button type="button" className="modal-close" onClick={onClose} aria-label="닫기"><X size={21} /></button>
         <span className="modal-icon"><QrCode size={25} /></span>
         <p className="modal-kicker">ROOM INVITATION</p>
-        <h2 id="share-title">{room.name}</h2>
+        <h2 id="share-title" className="share-code-title">{room.code}</h2>
         <p className="modal-description">QR을 보여주거나 코드를 공유해<br />친구를 모임에 초대하세요.</p>
         <div className="qr-placeholder" aria-label="방 초대 QR 코드">{qrImage ? <img src={qrImage} alt={`${room.name} 초대 QR 코드`} /> : <span>QR</span>}</div>
         <button type="button" className="code-box" onClick={copy}>
