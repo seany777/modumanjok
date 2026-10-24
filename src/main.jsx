@@ -84,6 +84,82 @@ const tournamentMenuImages = {
   '냉면': 'https://images.unsplash.com/photo-1553163147-622ab57be1c7?auto=format&fit=crop&w=640&q=78',
 }
 
+const menuPreferenceCatalog = [
+  { name: '제육볶음', cuisine: ['한식'], form: ['밥류', '고기류'], cooking: ['볶음'], risks: ['돼지고기', '대두(콩류)', '밀'] },
+  { name: '라멘', cuisine: ['일식'], form: ['면류'], cooking: ['국물'], risks: ['난류(가금류)', '밀', '대두(콩류)', '돼지고기'] },
+  { name: '피자', cuisine: ['양식'], form: ['빵류'], cooking: ['구이'], risks: ['우유', '밀', '토마토'] },
+  { name: '마라탕', cuisine: ['중식'], form: ['면류', '채소류'], cooking: ['국물'], risks: ['땅콩', '대두(콩류)', '쇠고기'] },
+  { name: '김치찌개', cuisine: ['한식'], form: ['고기류'], cooking: ['국물'], risks: ['돼지고기', '대두(콩류)'] },
+  { name: '비빔밥', cuisine: ['한식'], form: ['밥류', '채소류'], cooking: ['비빔'], risks: ['난류(가금류)', '대두(콩류)'] },
+  { name: '돈까스', cuisine: ['일식'], form: ['고기류'], cooking: ['튀김'], risks: ['돼지고기', '밀', '난류(가금류)', '우유'] },
+  { name: '초밥', cuisine: ['일식'], form: ['밥류', '해산물류'], cooking: ['생식 (회·육회 등)'], risks: ['고등어', '갑각류', '새우', '게', '조개류(굴·전복·홍합)'] },
+  { name: '떡볶이', cuisine: ['분식'], form: ['떡류'], cooking: ['국물'], risks: ['밀', '대두(콩류)'] },
+  { name: '햄버거', cuisine: ['패스트푸드'], form: ['빵류', '고기류'], cooking: ['구이'], risks: ['밀', '우유', '난류(가금류)', '쇠고기'] },
+  { name: '파스타', cuisine: ['양식'], form: ['면류'], cooking: ['볶음'], risks: ['밀', '우유', '토마토'] },
+  { name: '쌀국수', cuisine: ['동남아 음식'], form: ['면류'], cooking: ['국물'], risks: ['쇠고기'] },
+  { name: '치킨', cuisine: ['패스트푸드'], form: ['고기류'], cooking: ['튀김'], risks: ['닭고기', '밀'] },
+  { name: '샤브샤브', cuisine: ['한식', '일식'], form: ['고기류', '채소류'], cooking: ['국물'], risks: ['쇠고기', '대두(콩류)'] },
+  { name: '카레', cuisine: ['인도·중동 음식'], form: ['밥류'], cooking: ['볶음'], risks: ['우유', '밀'] },
+  { name: '냉면', cuisine: ['한식'], form: ['면류'], cooking: ['국물'], risks: ['메밀', '쇠고기', '난류(가금류)'] },
+]
+
+const normalizeFoodText = (value = '') => value.toLowerCase().replace(/[\s·()]/g, '')
+
+const getProfilePreferences = (profile) => ({
+  cuisine: profile.cuisine || [],
+  form: profile.form || [],
+  cooking: profile.cooking || [],
+  avoided: profile.avoided || [],
+  allergies: profile.allergies || [],
+})
+
+function makePreferenceCandidates(memberRecords) {
+  const preferences = Object.values(memberRecords || {}).map((member) => member.preferences).filter(Boolean)
+  const total = Math.max(1, preferences.length)
+  const candidates = menuPreferenceCatalog.map((menu) => {
+    const menuTerms = [menu.name, ...menu.cuisine, ...menu.form, ...menu.cooking, ...menu.risks].map(normalizeFoodText)
+    const blockedBy = []
+    let preferenceScore = 0
+    let matchedMembers = 0
+    preferences.forEach((profile) => {
+      const blocked = [...(profile.allergies || []), ...(profile.avoided || [])].filter((item) => {
+        const normalized = normalizeFoodText(item)
+        return normalized && menuTerms.some((term) => term.includes(normalized) || normalized.includes(term))
+      })
+      if (blocked.length) {
+        blockedBy.push(...blocked)
+        return
+      }
+      const matches = [
+        menu.cuisine.some((item) => profile.cuisine?.includes(item)),
+        menu.form.some((item) => profile.form?.includes(item)),
+        menu.cooking.some((item) => profile.cooking?.includes(item)),
+      ].filter(Boolean).length
+      if (matches) matchedMembers += 1
+      preferenceScore += matches * 11
+    })
+    const uniqueBlocked = [...new Set(blockedBy)]
+    return {
+      name: menu.name,
+      blocked: uniqueBlocked.length > 0,
+      score: Math.min(98, Math.round(62 + preferenceScore / total + (matchedMembers / total) * 8)),
+      reason: preferences.length
+        ? `${preferences.length}명 취향 반영 · ${matchedMembers || 0}명 선호 조건과 일치`
+        : '취향을 설정하면 더 정확하게 추천해요',
+    }
+  })
+  const safe = candidates.filter((candidate) => !candidate.blocked).sort((a, b) => b.score - a.score)
+  if (!safe.length) {
+    return [{
+      name: '조건에 맞는 메뉴 없음',
+      score: 0,
+      reason: '못 먹는 음식과 알레르기 조건을 다시 확인해주세요',
+      unavailable: true,
+    }]
+  }
+  return safe.slice(0, 3)
+}
+
 const sampleRestaurants = [
   { id: 1, name: '오늘의 식탁', distance: '320m', rating: 4.8, walk: '도보 5분', address: '학교 정문 앞 1번 골목' },
   { id: 2, name: '한상 가득', distance: '580m', rating: 4.6, walk: '도보 8분', address: '대학로 42길 7' },
@@ -248,11 +324,17 @@ function loadNaverMaps(keyId) {
   naverMapLoader = new Promise((resolve, reject) => {
     const callbackName = `initModumanjokMap${Date.now()}`
     let settled = false
+    const startedAt = Date.now()
     const finish = () => {
       if (settled) return
       if (!window.naver?.maps?.Service) {
+        if (Date.now() - startedAt < 8000) {
+          setTimeout(finish, 100)
+          return
+        }
         settled = true
-        reject(new Error('네이버 지도 위치 변환 모듈 초기화에 실패했습니다.'))
+        clearTimeout(timeout)
+        reject(new Error('네이버 지도 위치 변환 모듈을 불러오지 못했습니다. Reverse Geocoding과 Web 서비스 URL을 확인해주세요.'))
         return
       }
       settled = true
@@ -274,7 +356,7 @@ function loadNaverMaps(keyId) {
     const script = document.createElement('script')
     script.src = `https://oapi.map.naver.com/openapi/v3/maps.js?ncpKeyId=${encodeURIComponent(keyId)}&submodules=geocoder&callback=${callbackName}`
     script.async = true
-    script.onload = () => setTimeout(finish, 0)
+    script.onload = finish
     script.onerror = () => {
       if (!settled) {
         settled = true
@@ -285,9 +367,9 @@ function loadNaverMaps(keyId) {
     const timeout = setTimeout(() => {
       if (!settled) {
         settled = true
-        reject(new Error('네이버 지도 응답이 없습니다. Web 서비스 URL과 키를 확인해주세요.'))
+        reject(new Error('네이버 지도 응답이 없습니다. Reverse Geocoding과 Web 서비스 URL을 확인해주세요.'))
       }
-    }, 8000)
+    }, 9000)
     document.head.appendChild(script)
   }).catch((error) => {
     naverMapLoader = null
@@ -434,6 +516,7 @@ function App() {
   const [pendingJoinCode, setPendingJoinCode] = useState('')
   const [appSettings, setAppSettings] = useState(loadSavedSettings)
   const [userProfile, setUserProfile] = useState(defaultUserProfile)
+  const memberPreferenceSync = useRef('')
 
   const applyRoute = (pathname = window.location.pathname, search = window.location.search) => {
     const roomMatch = pathname.match(/^\/rooms\/([^/]+)$/)
@@ -510,6 +593,25 @@ function App() {
       updatedAt: serverTimestamp(),
     }).catch((error) => console.error('User directory sync failed:', error))
   }, [authUser, userProfile.name, userProfile.image])
+
+  useEffect(() => {
+    if (!authUser || !rooms.length) return
+    const joinedRoomIds = rooms.filter((room) => room.memberRecords?.[authUser.uid]).map((room) => room.id).sort()
+    const preferences = getProfilePreferences(userProfile)
+    const signature = JSON.stringify({ joinedRoomIds, preferences, name: userProfile.name, image: userProfile.image })
+    if (!joinedRoomIds.length || memberPreferenceSync.current === signature) return
+    memberPreferenceSync.current = signature
+    const changes = {}
+    joinedRoomIds.forEach((roomId) => {
+      changes[`rooms/${roomId}/members/${authUser.uid}/name`] = userProfile.name
+      changes[`rooms/${roomId}/members/${authUser.uid}/image`] = userProfile.image
+      changes[`rooms/${roomId}/members/${authUser.uid}/preferences`] = preferences
+    })
+    update(ref(database), changes).catch((error) => {
+      memberPreferenceSync.current = ''
+      console.error('Room preference sync failed:', error)
+    })
+  }, [authUser, rooms, userProfile.name, userProfile.image, userProfile.cuisine, userProfile.form, userProfile.cooking, userProfile.avoided, userProfile.allergies])
 
   useEffect(() => {
     const media = window.matchMedia('(prefers-color-scheme: dark)')
@@ -753,6 +855,7 @@ function App() {
           email: authUser.email || '',
           image: userProfile.image,
           role: 'owner',
+          preferences: getProfilePreferences(userProfile),
           joinedAt: Date.now(),
         },
       },
@@ -798,6 +901,7 @@ function App() {
           email: authUser.email || '',
           image: userProfile.image,
           role: roomData.ownerId === authUser.uid ? 'owner' : 'member',
+          preferences: getProfilePreferences(userProfile),
           joinedAt: Date.now(),
         },
         [`userRooms/${authUser.uid}/${roomId}`]: true,
@@ -1374,6 +1478,7 @@ function RoomDetail({ room, currentUser, friends, onBack, onShare, onDelete, onL
   const transitionDirection = stage >= previousStage.current ? 'forward' : 'backward'
   const isOwner = room.ownerId === currentUser.uid
   const memberEntries = Object.entries(room.memberRecords || {})
+  const preferenceSignature = JSON.stringify(memberEntries.map(([uid, member]) => [uid, member.preferences || null]))
 
   useEffect(() => {
     const flow = room.flow || {}
@@ -1389,22 +1494,13 @@ function RoomDetail({ room, currentUser, friends, onBack, onShare, onDelete, onL
   }, [stage])
 
   useEffect(() => {
-    let cancelled = false
-    setMenuApiStatus('loading')
-    loadRedtableBundle().then(([menus, restaurants, quality]) => {
-      if (cancelled) return
-      const candidates = makeApiCandidates(menus.items, restaurants.items, quality.items)
-      if (!candidates.length) throw new Error('조건에 맞는 메뉴를 찾지 못했습니다.')
-      setMenuCandidates(candidates)
-      setSelectedMenu(candidates[0].name)
-      setMenuApiStatus('ready')
-    }).catch((error) => {
-      if (cancelled) return
-      setMenuApiStatus('fallback')
-      setMenuApiMessage(error.message || 'API 연결을 확인해주세요.')
-    })
-    return () => { cancelled = true }
-  }, [])
+    const candidates = makePreferenceCandidates(room.memberRecords)
+    setMenuCandidates(candidates)
+    setMenuApiStatus('ready')
+    const preferenceCount = memberEntries.filter(([, member]) => member.preferences).length
+    setMenuApiMessage(`${preferenceCount}/${memberEntries.length}명의 취향을 반영했어요.`)
+    if (stage <= 2 && !room.flow?.selectedMenu && candidates[0]) setSelectedMenu(candidates[0].unavailable ? null : candidates[0].name)
+  }, [preferenceSignature])
 
   useEffect(() => {
     if (stage !== 3 || !navigator.geolocation) return
@@ -1460,9 +1556,10 @@ function RoomDetail({ room, currentUser, friends, onBack, onShare, onDelete, onL
   const selectMode = (nextMode) => {
     if (!isOwner) return
     setMode(nextMode)
-    setSelectedMenu(nextMode === 'ai' ? menuCandidates[0].name : null)
+    const firstMenu = menuCandidates[0]?.unavailable ? null : menuCandidates[0]?.name
+    setSelectedMenu(nextMode === 'ai' ? firstMenu : null)
     resetTournament()
-    onFlowChange({ mode: nextMode, selectedMenu: nextMode === 'ai' ? menuCandidates[0].name : '' })
+    onFlowChange({ mode: nextMode, selectedMenu: nextMode === 'ai' ? firstMenu || '' : '' })
   }
 
   const moveToStage = (nextStage, extra = {}) => {
@@ -1496,9 +1593,9 @@ function RoomDetail({ room, currentUser, friends, onBack, onShare, onDelete, onL
     if (!isOwner) return
     if (stage === 1) moveToStage(0)
     if (stage === 2) {
-      moveToStage(1, { selectedMenu: mode === 'ai' ? menuCandidates[0].name : '' })
+      moveToStage(1, { selectedMenu: mode === 'ai' && !menuCandidates[0]?.unavailable ? menuCandidates[0]?.name : '' })
       resetTournament()
-      setSelectedMenu(mode === 'ai' ? menuCandidates[0].name : null)
+      setSelectedMenu(mode === 'ai' && !menuCandidates[0]?.unavailable ? menuCandidates[0]?.name : null)
     }
     if (stage === 3) {
       moveToStage(2, { selectedRestaurant: null })
@@ -1571,7 +1668,7 @@ function RoomDetail({ room, currentUser, friends, onBack, onShare, onDelete, onL
           </section>
           <section className="lobby-ready-card">
             <div><UsersRound size={20} /><span><strong>{room.members.length}명 모두 참여했어요</strong><small>방장이 시작하면 1단계로 이동합니다.</small></span></div>
-            <button type="button" className="room-primary-button" disabled={!isOwner} onClick={() => moveToStage(1, { mode: 'ai', selectedMenu: menuCandidates[0]?.name || '' })}><Play size={18} fill="currentColor" /> {isOwner ? '시작하기' : '방장이 시작하기를 기다리는 중'}</button>
+            <button type="button" className="room-primary-button" disabled={!isOwner} onClick={() => moveToStage(1, { mode: 'ai', selectedMenu: menuCandidates[0]?.unavailable ? '' : menuCandidates[0]?.name || '' })}><Play size={18} fill="currentColor" /> {isOwner ? '시작하기' : '방장이 시작하기를 기다리는 중'}</button>
           </section>
           <div className="lobby-invite-actions">
             <button type="button" className="share-wide secondary-share" onClick={onShare}><QrCode size={19} /> 초대 코드 보기</button>
@@ -1623,19 +1720,18 @@ function RoomDetail({ room, currentUser, friends, onBack, onShare, onDelete, onL
 
       {stage === 2 && mode === 'ai' && (
         <section className="room-stage-section">
-          <div className="ai-recommend-banner"><span><Sparkles size={20} /></span><div><small>{menuApiStatus === 'loading' ? '서울 관광 음식 데이터를 불러오는 중이에요' : '모든 멤버의 정보를 분석했어요'}</small><strong>함께 먹기 좋은 메뉴 3개</strong></div></div>
+          <div className="ai-recommend-banner"><span><Sparkles size={20} /></span><div><small>선호 음식·못 먹는 음식·알레르기를 분석했어요</small><strong>함께 먹기 좋은 메뉴 3개</strong></div></div>
           <div className="ai-menu-list">
             {menuCandidates.map((menu, index) => (
-              <button key={menu.name} type="button" className={selectedMenu === menu.name ? 'selected' : ''} onClick={() => setSelectedMenu(menu.name)}>
+              <button key={menu.name} type="button" disabled={menu.unavailable} className={selectedMenu === menu.name ? 'selected' : ''} onClick={() => setSelectedMenu(menu.name)}>
                 <span className="menu-rank">{index + 1}</span>
                 <span className="candidate-copy"><b>{menu.name}</b><small>{menu.reason}</small></span>
                 <span className="match-score">{menu.score}%<small>일치</small></span>
               </button>
             ))}
           </div>
-          <p className={`prototype-note ${menuApiStatus === 'fallback' ? 'api-warning' : ''}`}>
-            {menuApiStatus === 'ready' ? <CheckCircle2 size={14} /> : menuApiStatus === 'fallback' ? <AlertTriangle size={14} /> : <Info size={14} />}
-            {menuApiStatus === 'ready' ? '서울관광재단 음식·식당 데이터가 적용됐어요.' : menuApiStatus === 'fallback' ? `${menuApiMessage} 예시 메뉴를 표시합니다.` : '연결 전에는 예시 추천이 표시됩니다.'}
+          <p className="prototype-note">
+            <CheckCircle2 size={14} /> {menuApiMessage} 알레르기와 못 먹는 음식에 해당하는 메뉴는 후보에서 제외했습니다.
           </p>
           <button type="button" className="room-primary-button stage-next" onClick={() => moveToStage(3, { selectedMenu })} disabled={!isOwner || !selectedMenu || menuApiStatus === 'loading'}>{!isOwner ? '방장이 메뉴를 결정하고 있어요' : menuApiStatus === 'loading' ? '실제 메뉴 불러오는 중' : `${selectedMenu}으로 결정`} <ChevronRight size={18} /></button>
         </section>
@@ -1690,7 +1786,7 @@ function RoomDetail({ room, currentUser, friends, onBack, onShare, onDelete, onL
                     <div className="restaurant-details">
                       <p><MapPin size={15} /> {restaurant.address}</p>
                       {restaurant.phone && <p>전화 {restaurant.phone}</p>}
-                      <p>{restaurantSource === 'naver' ? '네이버 지역 검색 결과이며 평점은 제공되지 않아요.' : restaurant.lat ? '현재 서울 지역만 표시됩니다. 거리는 내 현재 위치를 기준으로 계산했어요.' : 'API 연결 전 예시 추천입니다.'}</p>
+                      <p>{restaurantSource === 'naver' ? '네이버 지역 검색 결과이며 평점은 제공되지 않아요.' : '현재 위치 주변 식당을 불러오는 중이에요.'}</p>
                       <a href={restaurant.link || `https://map.naver.com/p/search/${encodeURIComponent(`${restaurant.name} ${restaurant.address}`)}`} target="_blank" rel="noreferrer">네이버 지도에서 자세히 보기 <ExternalLink size={14} /></a>
                     </div>
                   )}
