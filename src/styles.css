@@ -613,13 +613,24 @@ button:focus-visible, input:focus-visible, textarea:focus-visible {
   box-shadow: 0 32px 90px rgba(83, 49, 26, .19);
 }
 
-.page { animation: warm-page-in .42s cubic-bezier(.2,.76,.25,1) both; }
+.page {
+  overflow-x: hidden;
+  animation: warm-page-in .32s ease-out;
+}
 .top-header { position: relative; }
 .eyebrow, .section-kicker, .room-stage-copy > span, .settings-section-title > span {
   color: var(--accent-strong);
 }
 .top-header h1, .section-heading h2, .room-stage-copy h2, .settings-section-title h2 {
   color: var(--ink);
+}
+.animated-home-title { display: inline-flex; align-items: baseline; white-space: nowrap; }
+.animated-home-title > span {
+  display: inline-block;
+  opacity: 0;
+  transform-origin: 50% 0;
+  animation: home-character-drop .52s cubic-bezier(.16,.84,.25,1.08) forwards;
+  animation-delay: calc(var(--character-index) * 42ms + 70ms);
 }
 
 .icon-button, .back-button {
@@ -634,6 +645,85 @@ button:focus-visible, input:focus-visible, textarea:focus-visible {
 .notification-dot { border-color: var(--card); background: var(--accent); }
 
 .auth-page { background: transparent; }
+.splash-page {
+  position: relative;
+  height: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+  padding: 34px 28px;
+  background: var(--paper);
+  opacity: 1;
+  transition: opacity .42s ease, transform .42s cubic-bezier(.2,.75,.25,1);
+}
+.splash-page.leaving { opacity: 0; transform: scale(1.015); }
+.splash-brand { display: flex; flex-direction: column; align-items: center; transform: translateY(-34px); text-align: center; }
+.splash-brand img {
+  width: 112px;
+  height: 112px;
+  object-fit: contain;
+  filter: drop-shadow(0 16px 24px rgba(185,72,31,.22));
+  animation: splash-logo-arrive .75s cubic-bezier(.18,.86,.26,1.16) both;
+}
+.splash-brand h1 {
+  margin: 19px 0 7px;
+  color: var(--ink);
+  font-size: 29px;
+  letter-spacing: -.06em;
+  animation: splash-copy-arrive .58s .22s ease-out both;
+}
+.splash-brand p {
+  margin: 0;
+  color: var(--muted);
+  font-size: 10px;
+  animation: splash-copy-arrive .58s .32s ease-out both;
+}
+.splash-ad {
+  position: absolute;
+  left: 24px;
+  right: 24px;
+  bottom: 27px;
+  min-height: 92px;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 4px;
+  padding: 16px 58px 16px 17px;
+  overflow: hidden;
+  border: 1px solid #efd8ca;
+  border-radius: 19px;
+  background: linear-gradient(135deg, #fff4e9, #ffe0cc);
+  box-shadow: var(--warm-shadow);
+  animation: splash-ad-arrive .58s .46s cubic-bezier(.18,.8,.25,1) both;
+}
+.splash-ad::after {
+  content: "";
+  position: absolute;
+  top: -38px;
+  right: -28px;
+  width: 110px;
+  height: 110px;
+  border: 1px solid rgba(218,79,31,.15);
+  border-radius: 50%;
+}
+.splash-ad-kicker { color: var(--accent-strong); font-size: 7px; font-weight: 900; letter-spacing: .13em; }
+.splash-ad strong { font-size: 13px; }
+.splash-ad small { color: #957c6d; font-size: 8px; }
+.ad-badge {
+  z-index: 4;
+  display: grid;
+  place-items: center;
+  width: 25px;
+  height: 20px;
+  border: 1px solid currentColor;
+  border-radius: 5px;
+  font-size: 7px;
+  font-weight: 900;
+  letter-spacing: .08em;
+  line-height: 1;
+}
+.splash-ad > .ad-badge { position: absolute; right: 13px; bottom: 13px; color: var(--accent-strong); }
 .login-copy > span { color: var(--accent-strong); }
 .login-visual {
   background: linear-gradient(145deg, #fff3e8 0%, #ffd9c4 100%);
@@ -693,6 +783,18 @@ button:focus-visible, input:focus-visible, textarea:focus-visible {
   background: linear-gradient(135deg, var(--accent), var(--accent-strong));
   color: #fff;
 }
+.home-ad-card > .ad-badge {
+  position: absolute;
+  z-index: 4;
+  right: 15px;
+  bottom: 14px;
+  width: 25px;
+  height: 20px;
+  padding: 0;
+  color: currentColor;
+  opacity: .72;
+}
+.ad-dots { left: 50%; right: auto; transform: translateX(-50%); }
 .ad-dots span { background: rgba(255,255,255,.5); }
 
 :is(.recent-room, .quick-grid button, .progress-card, .decision-menu, .search-box,
@@ -956,10 +1058,13 @@ button:focus-visible, input:focus-visible, textarea:focus-visible {
 :root[data-theme="dark"] .toggle-switch.on { background: linear-gradient(135deg, var(--accent), var(--accent-strong)); }
 :root[data-theme="dark"] .toggle-switch.on span { background: #fff; }
 :root[data-theme="dark"] .taste-edit-sheet .sheet-submit { box-shadow: 0 -9px 22px var(--paper), 0 10px 23px rgba(0,0,0,.28); }
+:root[data-theme="dark"] .splash-page { background: var(--paper); }
+:root[data-theme="dark"] .splash-ad { border-color: #513428; background: linear-gradient(135deg, #352219, #2a1b15); }
+:root[data-theme="dark"] .splash-ad small { color: #c2a99a; }
 
 @keyframes warm-page-in {
-  from { opacity: 0; transform: translateY(9px); }
-  to { opacity: 1; transform: translateY(0); }
+  from { opacity: 0; }
+  to { opacity: 1; }
 }
 @keyframes warm-modal-in {
   from { opacity: 0; transform: translateY(18px) scale(.96); }
@@ -974,6 +1079,23 @@ button:focus-visible, input:focus-visible, textarea:focus-visible {
   65% { transform: scale(1.08); }
   100% { transform: scale(1); }
 }
+@keyframes home-character-drop {
+  0% { opacity: 0; transform: translateY(-19px) scale(.94); filter: blur(4px); }
+  68% { opacity: 1; transform: translateY(2px) scale(1.01); filter: blur(0); }
+  100% { opacity: 1; transform: translateY(0) scale(1); filter: blur(0); }
+}
+@keyframes splash-logo-arrive {
+  from { opacity: 0; transform: translateY(-22px) scale(.84) rotate(-4deg); }
+  to { opacity: 1; transform: translateY(0) scale(1) rotate(0); }
+}
+@keyframes splash-copy-arrive {
+  from { opacity: 0; transform: translateY(10px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+@keyframes splash-ad-arrive {
+  from { opacity: 0; transform: translateY(18px); }
+  to { opacity: 1; transform: translateY(0); }
+}
 
 @media (max-width: 760px) {
   body { background: var(--paper); }
@@ -987,4 +1109,5 @@ button:focus-visible, input:focus-visible, textarea:focus-visible {
     animation-iteration-count: 1 !important;
     transition-duration: .01ms !important;
   }
+  .splash-page.leaving { opacity: 1; transform: none; }
 }

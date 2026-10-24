@@ -120,6 +120,11 @@ const getProfilePreferences = (profile) => ({
   cooking: profile.cooking || [],
   avoided: profile.avoided || [],
   allergies: profile.allergies || [],
+  recentMenus: [...(profile.menuHistory || [])]
+    .sort((a, b) => Number(b?.completedAt || 0) - Number(a?.completedAt || 0))
+    .slice(0, 5)
+    .map((item) => item?.menu)
+    .filter(Boolean),
 })
 
 function makePreferenceCandidates(memberRecords) {
@@ -130,6 +135,7 @@ function makePreferenceCandidates(memberRecords) {
     const blockedBy = []
     let preferenceScore = 0
     let matchedMembers = 0
+    let recentMatchCount = 0
     preferences.forEach((profile) => {
       const blocked = [...(profile.allergies || []), ...(profile.avoided || [])].filter((item) => {
         const normalized = normalizeFoodText(item)
@@ -146,14 +152,25 @@ function makePreferenceCandidates(memberRecords) {
       ].filter(Boolean).length
       if (matches) matchedMembers += 1
       preferenceScore += matches * 11
+      const normalizedMenuName = normalizeFoodText(menu.name)
+      const recentlyAteMenu = (profile.recentMenus || []).some((recentMenu) => {
+        const normalizedRecentMenu = normalizeFoodText(recentMenu)
+        return normalizedRecentMenu && (
+          normalizedRecentMenu === normalizedMenuName
+          || normalizedRecentMenu.includes(normalizedMenuName)
+          || normalizedMenuName.includes(normalizedRecentMenu)
+        )
+      })
+      if (recentlyAteMenu) recentMatchCount += 1
     })
     const uniqueBlocked = [...new Set(blockedBy)]
+    const recentMenuPenalty = Math.round((recentMatchCount / total) * 8)
     return {
       name: menu.name,
       blocked: uniqueBlocked.length > 0,
-      score: Math.min(98, Math.round(62 + preferenceScore / total + (matchedMembers / total) * 8)),
+      score: Math.max(45, Math.min(98, Math.round(62 + preferenceScore / total + (matchedMembers / total) * 8 - recentMenuPenalty))),
       reason: preferences.length
-        ? `${preferences.length}명 취향 반영 · ${matchedMembers || 0}명 선호 조건과 일치`
+        ? `${preferences.length}명 취향 반영 · ${matchedMembers || 0}명 선호 조건과 일치${recentMatchCount ? ` · 최근 식사 ${recentMatchCount}명 중복 감점` : ''}`
         : '취향을 설정하면 더 정확하게 추천해요',
     }
   })
@@ -501,6 +518,7 @@ const defaultUserProfile = {
 
 const PROFILE_DATA_VERSION = 2
 const SETTINGS_STORAGE_KEY = 'modumanjok-app-settings'
+const SPLASH_SESSION_KEY = 'modumanjok-splash-seen'
 const defaultAppSettings = {
   theme: 'light',
   voteNotifications: true,
@@ -516,6 +534,14 @@ const loadSavedSettings = () => {
 }
 
 const roomColors = ['lime', 'coral', 'sky']
+const homeTitleMessages = [
+  '오늘은 뭐 먹을까요?',
+  '우리 같이 뭐 먹을까요?',
+  '모두 만족할 메뉴는?',
+  '오늘의 메뉴를 골라볼까요?',
+  '지금 딱 좋은 메뉴는?',
+  '맛있는 결정을 시작할까요?',
+]
 
 const createInviteCode = () => Math.random().toString(36).slice(2, 8).toUpperCase()
 
@@ -531,6 +557,13 @@ const normalizeRoom = (id, room) => {
 }
 
 function App() {
+  const [splashState, setSplashState] = useState(() => {
+    try {
+      return sessionStorage.getItem(SPLASH_SESSION_KEY) ? 'hidden' : 'visible'
+    } catch {
+      return 'visible'
+    }
+  })
   const [authUser, setAuthUser] = useState(undefined)
   const [authBusy, setAuthBusy] = useState(true)
   const [roomsLoading, setRoomsLoading] = useState(true)
@@ -552,6 +585,17 @@ function App() {
   const [appSettings, setAppSettings] = useState(loadSavedSettings)
   const [userProfile, setUserProfile] = useState(defaultUserProfile)
   const memberPreferenceSync = useRef('')
+
+  useEffect(() => {
+    if (splashState !== 'visible') return undefined
+    try { sessionStorage.setItem(SPLASH_SESSION_KEY, '1') } catch { /* storage unavailable */ }
+    const leaveTimer = setTimeout(() => setSplashState('leaving'), 1750)
+    const hideTimer = setTimeout(() => setSplashState('hidden'), 2200)
+    return () => {
+      clearTimeout(leaveTimer)
+      clearTimeout(hideTimer)
+    }
+  }, [])
 
   const applyRoute = (pathname = window.location.pathname, search = window.location.search) => {
     const roomMatch = pathname.match(/^\/rooms\/([^/]+)$/)
@@ -646,7 +690,7 @@ function App() {
       memberPreferenceSync.current = ''
       console.error('Room preference sync failed:', error)
     })
-  }, [authUser, rooms, userProfile.name, userProfile.image, userProfile.cuisine, userProfile.form, userProfile.cooking, userProfile.avoided, userProfile.allergies])
+  }, [authUser, rooms, userProfile.name, userProfile.image, userProfile.cuisine, userProfile.form, userProfile.cooking, userProfile.avoided, userProfile.allergies, userProfile.menuHistory])
 
   useEffect(() => {
     const media = window.matchMedia('(prefers-color-scheme: dark)')
@@ -974,6 +1018,35 @@ function App() {
     }
   }
 
+  const keepRoomAndReturnHome = async (room) => {
+    if (!authUser || room.ownerId !== authUser.uid) {
+      setToast('방장만 방을 초기화할 수 있어요')
+      return
+    }
+    const changes = {
+      [`rooms/${room.id}/flow/stage`]: 1,
+      [`rooms/${room.id}/flow/mode`]: 'ai',
+      [`rooms/${room.id}/flow/selectedMenu`]: null,
+      [`rooms/${room.id}/flow/selectedRestaurant`]: null,
+      [`rooms/${room.id}/flow/tournamentComplete`]: false,
+      [`rooms/${room.id}/flow/tournamentSessionId`]: null,
+      [`rooms/${room.id}/flow/completedAt`]: null,
+      [`rooms/${room.id}/flow/updatedAt`]: Date.now(),
+      [`rooms/${room.id}/tournamentVotes`]: null,
+    }
+    Object.keys(room.memberRecords || {}).forEach((uid) => {
+      changes[`rooms/${room.id}/members/${uid}/tournamentResult`] = null
+    })
+    try {
+      await update(ref(database), changes)
+      navigateTo('/')
+      setToast('멤버는 유지하고 방을 1단계로 초기화했어요')
+    } catch (error) {
+      console.error('Room reset failed:', error)
+      setToast('방 초기화에 실패했어요')
+    }
+  }
+
   const leaveRoom = async (room, nextOwnerId = null) => {
     if (!authUser) return
     const changes = {
@@ -1138,6 +1211,14 @@ function App() {
     recordMenuHistory(selectedRoom)
   }, [selectedRoom?.id, selectedRoom?.flow?.stage, selectedRoom?.flow?.selectedMenu])
 
+  if (splashState !== 'hidden') {
+    return (
+      <AppFrame>
+        <SplashScreen leaving={splashState === 'leaving'} />
+      </AppFrame>
+    )
+  }
+
   if (authUser === undefined) {
     return (
       <AppFrame>
@@ -1169,7 +1250,7 @@ function App() {
           onOpenFriends={() => setFriendSheetRoom(selectedRoom)}
           onFlowChange={(patch) => updateRoomFlow(selectedRoom, patch)}
           onTournamentSubmit={(scores, winner, sessionId) => submitTournamentResult(selectedRoom, scores, winner, sessionId)}
-          onKeep={() => navigateTo('/')}
+          onKeep={() => keepRoomAndReturnHome(selectedRoom)}
         />
         {shareRoom && <ShareModal room={shareRoom} onClose={() => setShareRoom(null)} onToast={setToast} />}
         {friendSheetRoom && (
@@ -1285,6 +1366,24 @@ function AuthLoadingScreen() {
   )
 }
 
+function SplashScreen({ leaving }) {
+  return (
+    <main className={`splash-page ${leaving ? 'leaving' : ''}`} aria-label="모두만족 시작 화면">
+      <div className="splash-brand">
+        <img src="/assets/modumanjok-logo.png" alt="모두만족 로고" />
+        <h1>모두만족</h1>
+        <p>모두가 만족하는 한 끼를 찾아드려요</p>
+      </div>
+      <aside className="splash-ad" aria-label="가상 광고">
+        <span className="splash-ad-kicker">CAMPUS FOOD WEEK</span>
+        <strong>학교 앞 맛집 할인전</strong>
+        <small>스타트업톤 시연용 가상 광고입니다.</small>
+        <span className="ad-badge">AD</span>
+      </aside>
+    </main>
+  )
+}
+
 function LoginScreen({ onLogin, busy, error }) {
   return (
     <main className="auth-page login-page">
@@ -1333,11 +1432,29 @@ function Header({ eyebrow, title, back, onBack, action }) {
   )
 }
 
+function AnimatedHomeTitle({ children }) {
+  const characters = [...children]
+  return (
+    <span className="animated-home-title" aria-label={children}>
+      {characters.map((character, index) => (
+        <span
+          key={`${character}-${index}`}
+          aria-hidden="true"
+          style={{ '--character-index': index }}
+        >
+          {character === ' ' ? '\u00A0' : character}
+        </span>
+      ))}
+    </span>
+  )
+}
+
 function HomeScreen({ rooms, onOpenRoom, onGoRooms, onOpenCreate }) {
   const recentRoom = rooms[0]
+  const [homeTitle] = useState(() => homeTitleMessages[Math.floor(Math.random() * homeTitleMessages.length)])
   return (
     <>
-      <Header eyebrow="반가워요 👋" title="오늘은 뭐 먹을까요?" />
+      <Header eyebrow="반가워요 👋" title={<AnimatedHomeTitle>{homeTitle}</AnimatedHomeTitle>} action={<span />} />
       <HomeAdCarousel onOpenCreate={onOpenCreate} />
 
       <section className="section-block">
@@ -1413,6 +1530,7 @@ function HomeAdCarousel({ onOpenCreate }) {
           <article className={`home-ad-card ${ad.tone}`} key={ad.title}>
             <span>{ad.label}</span><h2>{ad.title.split('\n').map((line) => <React.Fragment key={line}>{line}<br /></React.Fragment>)}</h2><p>{ad.copy}</p>
             <button type="button" onClick={index === 2 ? onOpenCreate : () => {}}>{ad.action}</button>
+            <span className="ad-badge">AD</span>
           </article>
         ))}
       </div>
