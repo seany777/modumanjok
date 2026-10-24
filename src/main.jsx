@@ -286,8 +286,13 @@ function loadRedtableBundle() {
 }
 
 function loadNaverRestaurants(menu, area) {
-  const queryText = `${area} ${menu} 맛집`.trim()
-  const cacheKey = `modumanjok-naver-local-v2:${queryText}`
+  const areaParts = area.split(/\s+/).filter(Boolean)
+  const searchAreas = [...new Set([
+    area,
+    areaParts.slice(0, -1).join(' '),
+    areaParts[0],
+  ].filter(Boolean))]
+  const cacheKey = `modumanjok-naver-local-v3:${searchAreas.join('|')}:${menu}`
   try {
     const cached = JSON.parse(sessionStorage.getItem(cacheKey) || 'null')
     if (cached?.savedAt > Date.now() - 30 * 60 * 1000) return Promise.resolve({ ...cached, area })
@@ -295,13 +300,26 @@ function loadNaverRestaurants(menu, area) {
     sessionStorage.removeItem(cacheKey)
   }
   if (naverRestaurantLoaders.has(cacheKey)) return naverRestaurantLoaders.get(cacheKey)
-  const loader = fetch(`/api/naver-local?query=${encodeURIComponent(queryText)}&menu=${encodeURIComponent(menu)}`)
-    .then((result) => result.json().then((data) => {
-      if (!result.ok) throw new Error(data.error || '네이버 식당 검색에 실패했습니다.')
-      const value = { items: data.items || [], area, savedAt: Date.now() }
-      try { sessionStorage.setItem(cacheKey, JSON.stringify(value)) } catch { /* memory cache only */ }
-      return value
-    }))
+  const loader = (async () => {
+    let lastError = null
+    for (const searchArea of searchAreas) {
+      const queryText = `${searchArea} ${menu} 맛집`.trim()
+      try {
+        const result = await fetch(`/api/naver-local?query=${encodeURIComponent(queryText)}&menu=${encodeURIComponent(menu)}`)
+        const data = await result.json()
+        if (!result.ok) throw new Error(data.error || '네이버 식당 검색에 실패했습니다.')
+        if (data.items?.length) {
+          const value = { items: data.items, area: searchArea, savedAt: Date.now() }
+          try { sessionStorage.setItem(cacheKey, JSON.stringify(value)) } catch { /* memory cache only */ }
+          return value
+        }
+      } catch (error) {
+        lastError = error
+      }
+    }
+    if (lastError) throw lastError
+    return { items: [], area, savedAt: Date.now() }
+  })()
     .finally(() => naverRestaurantLoaders.delete(cacheKey))
   naverRestaurantLoaders.set(cacheKey, loader)
   return loader
