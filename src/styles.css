@@ -88,8 +88,9 @@ button:focus-visible, input:focus-visible { outline: 3px solid rgba(22, 35, 30, 
 .home-ad-card.ad-light button { background: #171717; color: #fff; }
 .home-ad-card.ad-accent { background: #777774; }
 .ad-dots { position: absolute; z-index: 3; right: 17px; bottom: 16px; display: flex; gap: 5px; }
-.ad-dots span { width: 5px; height: 5px; border-radius: 99px; background: rgba(255,255,255,.42); transition: width .2s ease; }
-.ad-dots span.active { width: 16px; background: #fff; }
+.ad-dots button { width: 5px; height: 5px; padding: 0; border: 0; border-radius: 99px; background: rgba(255,255,255,.42); cursor: pointer; transition: width .2s ease, transform .18s ease, background .18s ease; }
+.ad-dots button.active { width: 16px; background: #fff; }
+.ad-dots button:hover { transform: scale(1.25); background: rgba(255,255,255,.78); }
 .home-page { scroll-padding-bottom: 96px; }
 
 .section-block { margin-top: 29px; }
@@ -795,7 +796,7 @@ button:focus-visible, input:focus-visible, textarea:focus-visible {
   opacity: .72;
 }
 .ad-dots { left: 50%; right: auto; transform: translateX(-50%); }
-.ad-dots span { background: rgba(255,255,255,.5); }
+.ad-dots button { background: rgba(255,255,255,.5); }
 
 :is(.recent-room, .quick-grid button, .progress-card, .decision-menu, .search-box,
 .lobby-ready-card, .mode-card, .ai-menu-list, .tournament-pair button,

@@ -580,6 +580,7 @@ function App() {
   const [toast, setToast] = useState('')
   const [settingsOpen, setSettingsOpen] = useState(false)
   const [profileSheet, setProfileSheet] = useState(null)
+  const [profileFocus, setProfileFocus] = useState(null)
   const [friendSheetRoom, setFriendSheetRoom] = useState(null)
   const [pendingJoinCode, setPendingJoinCode] = useState('')
   const [appSettings, setAppSettings] = useState(loadSavedSettings)
@@ -1276,6 +1277,15 @@ function App() {
             onOpenRoom={openRoom}
             onGoRooms={() => navigateTo('/rooms')}
             onOpenCreate={() => setSheet('create')}
+            onOpenHistory={() => {
+              setProfileFocus('history')
+              navigateTo('/profile')
+            }}
+            onOpenTaste={() => {
+              setProfileFocus('taste')
+              navigateTo('/profile')
+              setProfileSheet('taste')
+            }}
           />
         )}
         {activeTab === 'rooms' && (
@@ -1304,6 +1314,7 @@ function App() {
         ) : (
           <ProfileScreen
             profile={userProfile}
+            focusTarget={profileFocus}
             onOpenSettings={() => navigateTo('/settings')}
             onEditProfile={() => setProfileSheet('profile')}
             onEditTaste={() => setProfileSheet('taste')}
@@ -1449,7 +1460,7 @@ function AnimatedHomeTitle({ children }) {
   )
 }
 
-function HomeScreen({ rooms, onOpenRoom, onGoRooms, onOpenCreate }) {
+function HomeScreen({ rooms, onOpenRoom, onGoRooms, onOpenCreate, onOpenHistory, onOpenTaste }) {
   const recentRoom = rooms[0]
   const [homeTitle] = useState(() => homeTitleMessages[Math.floor(Math.random() * homeTitleMessages.length)])
   return (
@@ -1491,8 +1502,8 @@ function HomeScreen({ rooms, onOpenRoom, onGoRooms, onOpenCreate }) {
         </div>
         <div className="quick-grid">
           <button type="button" onClick={onGoRooms}><span className="quick-icon"><UsersRound size={22} /></span><b>내 모임</b><small>{rooms.length}개의 방</small></button>
-          <button type="button"><span className="quick-icon coral"><UtensilsCrossed size={22} /></span><b>최근 메뉴</b><small>결정 기록</small></button>
-          <button type="button"><span className="quick-icon sky"><Coffee size={22} /></span><b>취향 설정</b><small>내 조건 관리</small></button>
+          <button type="button" onClick={onOpenHistory}><span className="quick-icon coral"><UtensilsCrossed size={22} /></span><b>최근 메뉴</b><small>결정 기록</small></button>
+          <button type="button" onClick={onOpenTaste}><span className="quick-icon sky"><Coffee size={22} /></span><b>취향 설정</b><small>내 조건 관리</small></button>
         </div>
       </section>
     </>
@@ -1519,6 +1530,11 @@ function HomeAdCarousel({ onOpenCreate }) {
     return () => clearInterval(timer)
   }, [ads.length])
 
+  const moveToAd = (index) => {
+    setActiveAd(index)
+    scroller.current?.scrollTo({ left: scroller.current.clientWidth * index, behavior: 'smooth' })
+  }
+
   return (
     <section className="home-ad-wrap" aria-label="프로모션">
       <div
@@ -1534,7 +1550,18 @@ function HomeAdCarousel({ onOpenCreate }) {
           </article>
         ))}
       </div>
-      <div className="ad-dots">{ads.map((ad, index) => <span key={ad.title} className={activeAd === index ? 'active' : ''} />)}</div>
+      <div className="ad-dots" aria-label="광고 배너 선택">
+        {ads.map((ad, index) => (
+          <button
+            type="button"
+            key={ad.title}
+            className={activeAd === index ? 'active' : ''}
+            aria-label={`${index + 1}번째 배너로 이동`}
+            aria-current={activeAd === index ? 'true' : undefined}
+            onClick={() => moveToAd(index)}
+          />
+        ))}
+      </div>
     </section>
   )
 }
@@ -2059,10 +2086,17 @@ function RoomDetail({ room, currentUser, friends, onBack, onShare, onDelete, onL
   )
 }
 
-function ProfileScreen({ profile, onOpenSettings, onEditProfile, onEditTaste }) {
+function ProfileScreen({ profile, focusTarget, onOpenSettings, onEditProfile, onEditTaste }) {
   const menuHistory = [...(profile.menuHistory || [])]
     .sort((a, b) => Number(b.completedAt || 0) - Number(a.completedAt || 0))
     .slice(0, 5)
+  useEffect(() => {
+    if (!focusTarget) return undefined
+    const frame = requestAnimationFrame(() => {
+      document.getElementById(`profile-${focusTarget}`)?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+    })
+    return () => cancelAnimationFrame(frame)
+  }, [focusTarget])
   return (
     <>
       <Header
@@ -2090,7 +2124,7 @@ function ProfileScreen({ profile, onOpenSettings, onEditProfile, onEditTaste }) 
         </button>
       </section>
 
-      <section className="profile-section">
+      <section className="profile-section" id="profile-taste">
         <div className="profile-section-heading">
           <div><span>TASTE</span><h2>내 음식 취향</h2></div>
           <button type="button" className="section-edit" onClick={onEditTaste}><Pencil size={14} /> 편집</button>
@@ -2105,7 +2139,7 @@ function ProfileScreen({ profile, onOpenSettings, onEditProfile, onEditTaste }) 
         <p className="allergy-note">알레르기 정보는 실제 조리 환경과 다를 수 있으니 매장에 다시 확인해주세요.</p>
       </section>
 
-      <section className="profile-section history-section">
+      <section className="profile-section history-section" id="profile-history">
         <div className="profile-section-heading">
           <div><span>HISTORY</span><h2>메뉴 기록</h2></div>
           <History size={20} />
