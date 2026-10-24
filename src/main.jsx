@@ -1085,14 +1085,21 @@ function App() {
 
   const submitTournamentResult = async (room, scores, winner, sessionId) => {
     if (!authUser || !sessionId) return false
+    const result = {
+      scores,
+      winner,
+      sessionId,
+      voterName: userProfile.name,
+      completedAt: Date.now(),
+    }
     try {
-      await set(ref(database, `rooms/${room.id}/tournamentVotes/${authUser.uid}`), {
-        scores,
-        winner,
-        sessionId,
-        voterName: userProfile.name,
-        completedAt: Date.now(),
-      })
+      // Every member can always write their own member record. Keeping the result
+      // here prevents a room-level rule from making other members appear incomplete.
+      await set(ref(database, `rooms/${room.id}/members/${authUser.uid}/tournamentResult`), result)
+      // Retain the original path as a backwards-compatible mirror. The member result
+      // above remains the source of truth even if an older deployed rule rejects this.
+      set(ref(database, `rooms/${room.id}/tournamentVotes/${authUser.uid}`), result)
+        .catch((error) => console.warn('Tournament vote mirror failed:', error))
       setToast('내 월드컵 결과를 제출했어요')
       return true
     } catch (error) {
@@ -1287,7 +1294,7 @@ function LoginScreen({ onLogin, busy, error }) {
         <p>Google 계정으로 시작하면 내 취향과 모임 기록을 안전하게 저장할 수 있어요.</p>
       </div>
       <div className="login-visual" aria-hidden="true">
-        <span><UtensilsCrossed size={34} /></span>
+        <span className="login-brand-logo"><img src="/assets/modumanjok-logo.png" alt="" /></span>
         <div><UsersRound size={24} /><Sparkles size={22} /></div>
       </div>
       <div className="login-actions">
@@ -1537,8 +1544,16 @@ function RoomDetail({ room, currentUser, friends, onBack, onShare, onDelete, onL
   const memberEntries = Object.entries(room.memberRecords || {})
   const preferenceSignature = JSON.stringify(memberEntries.map(([uid, member]) => [uid, member.preferences || null]))
   const tournamentSessionId = room.flow?.tournamentSessionId || ''
-  const tournamentVotes = Object.values(room.tournamentVotes || {}).filter((vote) => vote.sessionId === tournamentSessionId)
-  const currentTournamentVote = room.tournamentVotes?.[currentUser.uid]
+  const tournamentVoteMap = new Map()
+  Object.entries(room.tournamentVotes || {}).forEach(([uid, vote]) => {
+    if (vote?.sessionId === tournamentSessionId) tournamentVoteMap.set(uid, vote)
+  })
+  memberEntries.forEach(([uid, member]) => {
+    const vote = member?.tournamentResult
+    if (vote?.sessionId === tournamentSessionId) tournamentVoteMap.set(uid, vote)
+  })
+  const tournamentVotes = [...tournamentVoteMap.values()]
+  const currentTournamentVote = room.memberRecords?.[currentUser.uid]?.tournamentResult || room.tournamentVotes?.[currentUser.uid]
   const hasSubmittedTournament = currentTournamentVote?.sessionId === tournamentSessionId
   const tournamentAllComplete = Boolean(tournamentSessionId) && tournamentVotes.length >= memberEntries.length
   const tournamentTotals = tournamentVotes.reduce((totals, vote) => {
