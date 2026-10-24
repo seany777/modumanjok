@@ -1,5 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react'
 import { createRoot } from 'react-dom/client'
+import { onAuthStateChanged, signInWithPopup, signInWithRedirect, signOut } from 'firebase/auth'
+import { get, ref, serverTimestamp, set, update } from 'firebase/database'
 import {
   ArrowLeft,
   AlertTriangle,
@@ -47,6 +49,7 @@ import {
   WalletCards,
   X,
 } from 'lucide-react'
+import { auth, database, googleProvider } from './firebase'
 import './styles.css'
 
 const initialRooms = [
@@ -108,7 +111,20 @@ const navItems = [
   { id: 'profile', label: '내 정보', icon: CircleUserRound },
 ]
 
+const defaultUserProfile = {
+  name: '<이름>',
+  image: '/assets/profile-example-color.png',
+  cuisine: ['한식', '일식'],
+  form: ['밥류', '면류'],
+  cooking: ['국물', '볶음'],
+  avoided: ['가지', '고수'],
+  allergies: ['갑각류'],
+}
+
 function App() {
+  const [authUser, setAuthUser] = useState(undefined)
+  const [authBusy, setAuthBusy] = useState(true)
+  const [authError, setAuthError] = useState('')
   const [activeTab, setActiveTab] = useState('home')
   const [rooms, setRooms] = useState(initialRooms)
   const [selectedRoom, setSelectedRoom] = useState(null)
@@ -122,15 +138,7 @@ function App() {
     voteNotifications: true,
     profileVisibility: 'friends',
   })
-  const [userProfile, setUserProfile] = useState({
-    name: '<이름>',
-    image: '/assets/profile-example-color.png',
-    cuisine: ['한식', '일식'],
-    form: ['밥류', '면류'],
-    cooking: ['국물', '볶음'],
-    avoided: ['가지', '고수'],
-    allergies: ['갑각류'],
-  })
+  const [userProfile, setUserProfile] = useState(defaultUserProfile)
 
   useEffect(() => {
     if (!toast) return
@@ -150,6 +158,112 @@ function App() {
     media.addEventListener?.('change', applyTheme)
     return () => media.removeEventListener?.('change', applyTheme)
   }, [appSettings.theme])
+
+  useEffect(() => onAuthStateChanged(auth, async (user) => {
+    setAuthUser(user)
+    setAuthBusy(false)
+    setAuthError('')
+
+    if (!user) {
+      setUserProfile(defaultUserProfile)
+      return
+    }
+
+    const googleProfile = {
+      ...defaultUserProfile,
+      name: user.displayName || defaultUserProfile.name,
+      image: user.photoURL || defaultUserProfile.image,
+    }
+
+    try {
+      const userRef = ref(database, `users/${user.uid}`)
+      const snapshot = await get(userRef)
+
+      if (snapshot.exists()) {
+        const saved = snapshot.val()
+        setUserProfile({
+          ...googleProfile,
+          ...saved,
+          name: saved.name || googleProfile.name,
+          image: saved.image || googleProfile.image,
+          cuisine: saved.cuisine || googleProfile.cuisine,
+          form: saved.form || googleProfile.form,
+          cooking: saved.cooking || googleProfile.cooking,
+          avoided: saved.avoided || googleProfile.avoided,
+          allergies: saved.allergies || googleProfile.allergies,
+        })
+      } else {
+        await set(userRef, {
+          ...googleProfile,
+          uid: user.uid,
+          email: user.email || '',
+          createdAt: serverTimestamp(),
+          updatedAt: serverTimestamp(),
+        })
+        setUserProfile(googleProfile)
+      }
+    } catch (error) {
+      console.error('Firebase profile sync failed:', error)
+      setUserProfile(googleProfile)
+      setToast('로그인은 됐지만 DB 규칙을 확인해주세요')
+    }
+  }), [])
+
+  const loginWithGoogle = async () => {
+    setAuthBusy(true)
+    setAuthError('')
+    try {
+      if (window.matchMedia('(max-width: 760px)').matches) {
+        await signInWithRedirect(auth, googleProvider)
+      } else {
+        await signInWithPopup(auth, googleProvider)
+      }
+    } catch (error) {
+      console.error('Google login failed:', error)
+      const message = error.code === 'auth/unauthorized-domain'
+        ? 'Firebase 승인된 도메인에 현재 주소를 추가해주세요.'
+        : error.code === 'auth/operation-not-allowed'
+          ? 'Firebase Authentication에서 Google 로그인을 활성화해주세요.'
+          : 'Google 로그인에 실패했어요. 잠시 후 다시 시도해주세요.'
+      setAuthError(message)
+      setAuthBusy(false)
+    }
+  }
+
+  const logout = async () => {
+    try {
+      await signOut(auth)
+      setActiveTab('home')
+      setSettingsOpen(false)
+      setSelectedRoom(null)
+    } catch (error) {
+      console.error('Logout failed:', error)
+      setToast('로그아웃에 실패했어요')
+    }
+  }
+
+  const saveUserProfile = async (nextProfile, message) => {
+    setUserProfile(nextProfile)
+    setProfileSheet(null)
+
+    if (!auth.currentUser) {
+      setToast(message)
+      return
+    }
+
+    try {
+      await update(ref(database, `users/${auth.currentUser.uid}`), {
+        ...nextProfile,
+        uid: auth.currentUser.uid,
+        email: auth.currentUser.email || '',
+        updatedAt: serverTimestamp(),
+      })
+      setToast(message)
+    } catch (error) {
+      console.error('Profile save failed:', error)
+      setToast('화면에는 저장됐지만 DB 저장에 실패했어요')
+    }
+  }
 
   const addRoom = (name) => {
     const newRoom = {
@@ -177,6 +291,22 @@ function App() {
     setRooms((current) => [joinedRoom, ...current])
     setSheet(null)
     setToast('방에 참여했어요')
+  }
+
+  if (authUser === undefined) {
+    return (
+      <AppFrame>
+        <AuthLoadingScreen />
+      </AppFrame>
+    )
+  }
+
+  if (!authUser) {
+    return (
+      <AppFrame>
+        <LoginScreen onLogin={loginWithGoogle} busy={authBusy} error={authError} />
+      </AppFrame>
+    )
   }
 
   if (selectedRoom) {
@@ -228,6 +358,7 @@ function App() {
             onBack={() => setSettingsOpen(false)}
             onChange={(key, value) => setAppSettings((current) => ({ ...current, [key]: value }))}
             onAction={setToast}
+            onLogout={logout}
           />
         ) : (
           <ProfileScreen
@@ -259,22 +390,14 @@ function App() {
         <ProfileEditSheet
           profile={userProfile}
           onClose={() => setProfileSheet(null)}
-          onSave={(nextProfile) => {
-            setUserProfile(nextProfile)
-            setProfileSheet(null)
-            setToast('프로필을 저장했어요')
-          }}
+          onSave={(nextProfile) => saveUserProfile(nextProfile, '프로필을 저장했어요')}
         />
       )}
       {profileSheet === 'taste' && (
         <TasteEditSheet
           profile={userProfile}
           onClose={() => setProfileSheet(null)}
-          onSave={(nextProfile) => {
-            setUserProfile(nextProfile)
-            setProfileSheet(null)
-            setToast('음식 취향을 저장했어요')
-          }}
+          onSave={(nextProfile) => saveUserProfile(nextProfile, '음식 취향을 저장했어요')}
         />
       )}
       {toast && <Toast>{toast}</Toast>}
@@ -287,6 +410,39 @@ function AppFrame({ children }) {
     <div className="site-shell">
       <div className="app-frame">{children}</div>
     </div>
+  )
+}
+
+function AuthLoadingScreen() {
+  return (
+    <main className="auth-page auth-loading" aria-label="로그인 상태 확인 중">
+      <span className="auth-spinner" />
+      <p>로그인 상태를 확인하고 있어요</p>
+    </main>
+  )
+}
+
+function LoginScreen({ onLogin, busy, error }) {
+  return (
+    <main className="auth-page login-page">
+      <div className="login-copy">
+        <span>WELCOME</span>
+        <h1>같이 먹을 메뉴,<br />이제 빠르게 정해요.</h1>
+        <p>Google 계정으로 시작하면 내 취향과 모임 기록을 안전하게 저장할 수 있어요.</p>
+      </div>
+      <div className="login-visual" aria-hidden="true">
+        <span><UtensilsCrossed size={34} /></span>
+        <div><UsersRound size={24} /><Sparkles size={22} /></div>
+      </div>
+      <div className="login-actions">
+        <button type="button" className="google-login-button" onClick={onLogin} disabled={busy}>
+          <span className="google-mark">G</span>
+          {busy ? 'Google 연결 중…' : 'Google로 계속하기'}
+        </button>
+        {error && <p className="auth-error"><AlertTriangle size={14} /> {error}</p>}
+        <small>계속하면 서비스 이용약관과 개인정보 처리방침에 동의하게 됩니다.</small>
+      </div>
+    </main>
   )
 }
 
@@ -866,7 +1022,7 @@ function TasteRow({ icon, label, values, warning }) {
   )
 }
 
-function SettingsScreen({ settings, onBack, onChange, onAction }) {
+function SettingsScreen({ settings, onBack, onChange, onAction, onLogout }) {
   return (
     <>
       <Header
@@ -916,7 +1072,7 @@ function SettingsScreen({ settings, onBack, onChange, onAction }) {
       <section className="settings-section">
         <div className="settings-section-title"><span>ACCOUNT</span><h2>계정 관리</h2></div>
         <div className="settings-list action-list">
-          <button type="button" onClick={() => onAction('로그인 기능 추가 후 연결할 예정이에요')}><span className="setting-leading"><LogOut size={18} /></span><span>로그아웃</span><ChevronRight size={18} /></button>
+          <button type="button" onClick={onLogout}><span className="setting-leading"><LogOut size={18} /></span><span>로그아웃</span><ChevronRight size={18} /></button>
           <button type="button" className="danger-row" onClick={() => onAction('회원 탈퇴 기능은 아직 연결되지 않았어요')}><span className="setting-leading"><Trash2 size={18} /></span><span>회원 탈퇴</span><ChevronRight size={18} /></button>
         </div>
       </section>
