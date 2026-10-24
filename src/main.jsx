@@ -313,6 +313,7 @@ function App() {
   const [authUser, setAuthUser] = useState(undefined)
   const [authBusy, setAuthBusy] = useState(true)
   const [roomsLoading, setRoomsLoading] = useState(true)
+  const [roomsLoadStatus, setRoomsLoadStatus] = useState('loading')
   const [authError, setAuthError] = useState('')
   const [activeTab, setActiveTab] = useState('home')
   const [rooms, setRooms] = useState([])
@@ -494,10 +495,12 @@ function App() {
       setRooms([])
       setFriends([])
       setRoomsLoading(false)
+      setRoomsLoadStatus('idle')
       return undefined
     }
 
     setRoomsLoading(true)
+    setRoomsLoadStatus('loading')
     const unsubscribeRooms = onValue(ref(database, 'rooms'), (snapshot) => {
       try {
         const nextRooms = Object.entries(snapshot.val() || {})
@@ -505,17 +508,24 @@ function App() {
           .map(([roomId, room]) => normalizeRoom(roomId, room))
           .sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0))
         setRooms(nextRooms)
+        setRoomsLoadStatus('ready')
       } catch (error) {
         console.error('Room sync failed:', error)
         setToast('방 목록을 불러오지 못했어요')
       } finally {
         setRoomsLoading(false)
       }
+    }, (error) => {
+      console.error('Room subscription failed:', error)
+      setRooms([])
+      setRoomsLoading(false)
+      setRoomsLoadStatus('error')
+      setToast(error.code === 'PERMISSION_DENIED' ? '방 DB 읽기 권한이 없어요. Firebase 규칙을 게시해주세요' : '방 목록 연결에 실패했어요')
     })
 
     const unsubscribeFriends = onValue(ref(database, `friends/${authUser.uid}`), (snapshot) => {
       setFriends(Object.entries(snapshot.val() || {}).map(([uid, friend]) => ({ uid, ...friend })))
-    })
+    }, (error) => console.error('Friend subscription failed:', error))
 
     return () => {
       unsubscribeRooms()
@@ -848,6 +858,7 @@ function App() {
           <RoomsScreen
             rooms={rooms}
             loading={roomsLoading}
+            loadStatus={roomsLoadStatus}
             profileName={userProfile.name}
             onOpenRoom={openRoom}
             onShareRoom={setShareRoom}
@@ -1066,7 +1077,7 @@ function HomeAdCarousel({ onOpenCreate }) {
   )
 }
 
-function RoomsScreen({ rooms, loading, profileName, onOpenRoom, onShareRoom, onCreate, onJoin }) {
+function RoomsScreen({ rooms, loading, loadStatus, profileName, onOpenRoom, onShareRoom, onCreate, onJoin }) {
   const [query, setQuery] = useState('')
   const filtered = rooms.filter((room) => room.name.includes(query))
   return (
@@ -1092,6 +1103,11 @@ function RoomsScreen({ rooms, loading, profileName, onOpenRoom, onShareRoom, onC
         </div>
       </div>
       <div className="rooms-scroll-area">
+        <div className={`room-load-status ${loadStatus}`} role="status">
+          {loadStatus === 'loading' && <><span className="mini-spinner" /> 방 불러오는 중</>}
+          {loadStatus === 'ready' && <><CheckCircle2 size={14} /> 방 불러오기 완료</>}
+          {loadStatus === 'error' && <><AlertTriangle size={14} /> DB 연결 실패 · Firebase 규칙 확인</>}
+        </div>
         <div className="room-list-heading">
           <p>총 <strong>{filtered.length}</strong>개의 방</p>
           <span>길게 눌러 초대 코드 보기</span>
