@@ -2,7 +2,7 @@ import React, { useEffect, useRef, useState } from 'react'
 import { createRoot } from 'react-dom/client'
 import QRCode from 'qrcode'
 import { onAuthStateChanged, signInWithPopup, signInWithRedirect, signOut } from 'firebase/auth'
-import { equalTo, get, onValue, orderByChild, query, ref, serverTimestamp, set, update } from 'firebase/database'
+import { equalTo, get, onValue, orderByChild, query, ref, runTransaction, serverTimestamp, set, update } from 'firebase/database'
 import {
   ArrowLeft,
   AlertTriangle,
@@ -58,11 +58,22 @@ const aiMenuCandidates = [
   { name: '마라탕', score: 81, reason: '재료 선택이 자유로워 취향 조절이 쉬워요' },
 ]
 
+const roomModeLabels = {
+  ai: 'AI 추천',
+  tournament: '메뉴 이상형 월드컵',
+  roulette: '메뉴 룰렛',
+  competition: 'Hot Potato 먹기 도전',
+}
+
 const tournamentMenus = [
   '제육볶음', '라멘', '피자', '마라탕',
   '김치찌개', '비빔밥', '돈까스', '초밥',
   '떡볶이', '햄버거', '파스타', '쌀국수',
   '치킨', '샤브샤브', '카레', '냉면',
+  '족발', '보쌈', '김밥', '순대국',
+  '칼국수', '닭갈비', '부대찌개', '볶음밥',
+  '짜장면', '짬뽕', '탕수육', '우동',
+  '오므라이스', '회덮밥', '샌드위치', '케밥',
 ]
 
 const tournamentMenuImages = {
@@ -101,6 +112,22 @@ const menuPreferenceCatalog = [
   { name: '샤브샤브', cuisine: ['한식', '일식'], form: ['고기류', '채소류'], cooking: ['국물'], risks: ['쇠고기', '대두(콩류)'] },
   { name: '카레', cuisine: ['인도·중동 음식'], form: ['밥류'], cooking: ['볶음'], risks: ['우유', '밀'] },
   { name: '냉면', cuisine: ['한식'], form: ['면류'], cooking: ['국물'], risks: ['메밀', '쇠고기', '난류(가금류)'] },
+  { name: '족발', cuisine: ['한식'], form: ['고기류'], cooking: ['조림'], risks: ['돼지고기', '대두(콩류)'] },
+  { name: '보쌈', cuisine: ['한식'], form: ['고기류', '채소류'], cooking: ['찜'], risks: ['돼지고기', '새우', '대두(콩류)'] },
+  { name: '김밥', cuisine: ['한식', '분식'], form: ['밥류', '채소류'], cooking: ['기타'], risks: ['난류(가금류)', '대두(콩류)', '참깨'] },
+  { name: '순대국', cuisine: ['한식'], form: ['고기류'], cooking: ['국물'], risks: ['돼지고기', '들깨'] },
+  { name: '칼국수', cuisine: ['한식'], form: ['면류'], cooking: ['국물'], risks: ['밀', '조개류(굴·전복·홍합)'] },
+  { name: '닭갈비', cuisine: ['한식'], form: ['고기류'], cooking: ['볶음'], risks: ['닭고기', '대두(콩류)'] },
+  { name: '부대찌개', cuisine: ['한식'], form: ['고기류'], cooking: ['국물'], risks: ['돼지고기', '대두(콩류)', '밀', '우유'] },
+  { name: '볶음밥', cuisine: ['한식', '중식'], form: ['밥류'], cooking: ['볶음'], risks: ['난류(가금류)', '대두(콩류)'] },
+  { name: '짜장면', cuisine: ['중식'], form: ['면류'], cooking: ['볶음'], risks: ['밀', '대두(콩류)', '돼지고기'] },
+  { name: '짬뽕', cuisine: ['중식'], form: ['면류', '해산물류'], cooking: ['국물'], risks: ['밀', '갑각류', '조개류(굴·전복·홍합)'] },
+  { name: '탕수육', cuisine: ['중식'], form: ['고기류'], cooking: ['튀김'], risks: ['돼지고기', '밀', '대두(콩류)'] },
+  { name: '우동', cuisine: ['일식'], form: ['면류'], cooking: ['국물'], risks: ['밀', '대두(콩류)', '고등어'] },
+  { name: '오므라이스', cuisine: ['양식', '일식'], form: ['밥류'], cooking: ['볶음'], risks: ['난류(가금류)', '우유', '토마토'] },
+  { name: '회덮밥', cuisine: ['한식', '일식'], form: ['밥류', '해산물류'], cooking: ['생식 (회·육회 등)'], risks: ['고등어', '대두(콩류)', '참깨'] },
+  { name: '샌드위치', cuisine: ['양식'], form: ['빵류', '채소류'], cooking: ['기타'], risks: ['밀', '우유', '난류(가금류)'] },
+  { name: '케밥', cuisine: ['인도·중동 음식'], form: ['빵류', '고기류'], cooking: ['구이'], risks: ['밀', '우유', '쇠고기'] },
 ]
 
 const allergyFallbackCatalog = [
@@ -113,6 +140,36 @@ const allergyFallbackCatalog = [
 ]
 
 const normalizeFoodText = (value = '') => value.toLowerCase().replace(/[\s·()]/g, '')
+
+const isMenuBlockedForMembers = (menu, memberRecords) => {
+  const menuTerms = [menu.name, ...menu.cuisine, ...menu.form, ...menu.cooking, ...menu.risks].map(normalizeFoodText)
+  return Object.values(memberRecords || {}).some((member) => {
+    const preferences = member.preferences || {}
+    return [...(preferences.allergies || []), ...(preferences.avoided || [])].some((item) => {
+      const normalized = normalizeFoodText(item)
+      return normalized && menuTerms.some((term) => term.includes(normalized) || normalized.includes(term))
+    })
+  })
+}
+
+const getSafeMenuNames = (memberRecords) => {
+  const safe = menuPreferenceCatalog.filter((menu) => !isMenuBlockedForMembers(menu, memberRecords)).map((menu) => menu.name)
+  return safe.length >= 2 ? safe : allergyFallbackCatalog.map((menu) => menu.name)
+}
+
+const seededMenuValue = (value) => [...value].reduce((hash, character) => ((hash * 31) + character.charCodeAt(0)) >>> 0, 2166136261)
+
+const getTournamentBracket = (memberRecords, seed = '') => {
+  const ordered = [...getSafeMenuNames(memberRecords)].sort((a, b) => seededMenuValue(`${seed}-${a}`) - seededMenuValue(`${seed}-${b}`))
+  const size = ordered.length >= 16 ? 16 : ordered.length >= 8 ? 8 : ordered.length >= 4 ? 4 : 2
+  return ordered.slice(0, size)
+}
+
+const roulettePalette = ['#f06a3b', '#ffbd82', '#ef8758', '#ffd4ad', '#df552a', '#f6a36f', '#ffcab0', '#e97947']
+const getRouletteGradient = (menus) => {
+  const size = 360 / Math.max(1, menus.length)
+  return `conic-gradient(${menus.map((_, index) => `${roulettePalette[index % roulettePalette.length]} ${index * size}deg ${(index + 1) * size}deg`).join(',')})`
+}
 
 const getProfilePreferences = (profile) => ({
   cuisine: profile.cuisine || [],
@@ -430,10 +487,11 @@ function loadNaverMaps(keyId) {
   return naverMapLoader
 }
 
-function NaverRestaurantMap({ restaurants, selectedRestaurant, userLocation }) {
+function NaverRestaurantMap({ restaurants, selectedRestaurant, userLocation, showRoute = false }) {
   const mapElement = useRef(null)
   const mapInstance = useRef(null)
   const markerInstances = useRef([])
+  const routeInstance = useRef(null)
   const keyId = import.meta.env.VITE_NAVER_MAP_NCP_KEY_ID
   const [mapError, setMapError] = useState('')
 
@@ -457,6 +515,8 @@ function NaverRestaurantMap({ restaurants, selectedRestaurant, userLocation }) {
       mapInstance.current = map
       markerInstances.current.forEach((marker) => marker.setMap(null))
       markerInstances.current = []
+      routeInstance.current?.setMap(null)
+      routeInstance.current = null
       const bounds = new maps.LatLngBounds()
       locations.forEach((restaurant) => {
         const position = new maps.LatLng(restaurant.lat, restaurant.lng)
@@ -473,6 +533,19 @@ function NaverRestaurantMap({ restaurants, selectedRestaurant, userLocation }) {
           icon: { content: '<div class="current-location-marker"></div>', anchor: new maps.Point(8, 8) },
         }))
       }
+      if (showRoute && userLocation && Number.isFinite(selectedRestaurant?.lat) && Number.isFinite(selectedRestaurant?.lng)) {
+        routeInstance.current = new maps.Polyline({
+          map,
+          path: [
+            new maps.LatLng(userLocation.lat, userLocation.lng),
+            new maps.LatLng(selectedRestaurant.lat, selectedRestaurant.lng),
+          ],
+          strokeColor: '#ed6535',
+          strokeOpacity: .92,
+          strokeWeight: 5,
+          strokeStyle: 'shortdash',
+        })
+      }
       if (locations.length > 0 && userLocation) map.fitBounds(bounds, { top: 30, right: 30, bottom: 30, left: 30 })
       else if (locations.length > 1) map.fitBounds(bounds, { top: 30, right: 30, bottom: 30, left: 30 })
       else if (userLocation) {
@@ -486,7 +559,7 @@ function NaverRestaurantMap({ restaurants, selectedRestaurant, userLocation }) {
       disposed = true
       window.removeEventListener('navermap-auth-failure', handleAuthFailure)
     }
-  }, [keyId, restaurants, userLocation])
+  }, [keyId, restaurants, userLocation, selectedRestaurant?.lat, selectedRestaurant?.lng, showRoute])
 
   useEffect(() => {
     if (!selectedRestaurant?.lat || !selectedRestaurant?.lng || !mapInstance.current || !window.naver?.maps) return
@@ -544,6 +617,8 @@ const homeTitleMessages = [
 ]
 
 const createInviteCode = () => Math.random().toString(36).slice(2, 8).toUpperCase()
+const normalizeNickname = (value = '') => value.trim().replace(/\s+/g, ' ').toLocaleLowerCase('ko-KR')
+const nicknamePathKey = (value = '') => encodeURIComponent(normalizeNickname(value)).replace(/\./g, '%2E')
 
 const normalizeRoom = (id, room) => {
   const memberRecords = room?.members || {}
@@ -565,6 +640,8 @@ function App() {
     }
   })
   const [authUser, setAuthUser] = useState(undefined)
+  const [profileReady, setProfileReady] = useState(false)
+  const [needsOnboarding, setNeedsOnboarding] = useState(false)
   const [authBusy, setAuthBusy] = useState(true)
   const [roomsLoading, setRoomsLoading] = useState(true)
   const [roomsLoadStatus, setRoomsLoadStatus] = useState('loading')
@@ -666,12 +743,40 @@ function App() {
 
   useEffect(() => {
     if (!authUser || !userProfile.name) return
-    update(ref(database, `userDirectory/${authUser.uid}`), {
-      name: userProfile.name,
-      email: authUser.email?.toLowerCase() || '',
-      image: userProfile.image || '/assets/default-profile.svg',
-      updatedAt: serverTimestamp(),
-    }).catch((error) => console.error('User directory sync failed:', error))
+    let cancelled = false
+    const syncDirectory = async () => {
+      let nickname = userProfile.name.trim()
+      let key = nicknamePathKey(nickname)
+      try {
+        let reservation = await runTransaction(ref(database, `nicknames/${key}`), (ownerUid) => (
+          ownerUid === null || ownerUid === authUser.uid ? authUser.uid : undefined
+        ), { applyLocally: false })
+        if (!reservation.committed) {
+          nickname = `${nickname}_${authUser.uid.slice(0, 4)}`
+          key = nicknamePathKey(nickname)
+          reservation = await runTransaction(ref(database, `nicknames/${key}`), (ownerUid) => (
+            ownerUid === null || ownerUid === authUser.uid ? authUser.uid : undefined
+          ), { applyLocally: false })
+        }
+        if (!reservation.committed || cancelled) return
+        if (nickname !== userProfile.name) {
+          setUserProfile((profile) => ({ ...profile, name: nickname }))
+          await update(ref(database, `users/${authUser.uid}`), { name: nickname, updatedAt: serverTimestamp() })
+          return
+        }
+        await update(ref(database, `userDirectory/${authUser.uid}`), {
+          name: nickname,
+          nameNormalized: normalizeNickname(nickname),
+          email: authUser.email?.toLowerCase() || '',
+          image: userProfile.image || '/assets/default-profile.svg',
+          updatedAt: serverTimestamp(),
+        })
+      } catch (error) {
+        console.error('User directory sync failed:', error)
+      }
+    }
+    syncDirectory()
+    return () => { cancelled = true }
   }, [authUser, userProfile.name, userProfile.image])
 
   useEffect(() => {
@@ -708,12 +813,15 @@ function App() {
   }, [appSettings])
 
   useEffect(() => onAuthStateChanged(auth, async (user) => {
+    setProfileReady(false)
     setAuthUser(user)
     setAuthBusy(false)
     setAuthError('')
 
     if (!user) {
       setUserProfile(defaultUserProfile)
+      setNeedsOnboarding(false)
+      setProfileReady(true)
       return
     }
 
@@ -730,6 +838,7 @@ function App() {
 
       if (snapshot.exists()) {
         const saved = snapshot.val()
+        setNeedsOnboarding(saved.onboardingComplete === false)
         if (saved.settings) setAppSettings({ ...defaultAppSettings, ...saved.settings })
         if (saved.profileDataVersion !== PROFILE_DATA_VERSION) {
           await update(userRef, {
@@ -765,15 +874,20 @@ function App() {
           email: user.email || '',
           profileDataVersion: PROFILE_DATA_VERSION,
           settings: appSettings,
+          onboardingComplete: false,
           createdAt: serverTimestamp(),
           updatedAt: serverTimestamp(),
         })
         setUserProfile(googleProfile)
+        setNeedsOnboarding(true)
       }
     } catch (error) {
       console.error('Firebase profile sync failed:', error)
       setUserProfile(googleProfile)
       setToast('로그인은 됐지만 DB 규칙을 확인해주세요')
+      setNeedsOnboarding(false)
+    } finally {
+      setProfileReady(true)
     }
   }), [])
 
@@ -893,26 +1007,59 @@ function App() {
   }
 
   const saveUserProfile = async (nextProfile, message) => {
-    setUserProfile(nextProfile)
-    setProfileSheet(null)
-
     if (!auth.currentUser) {
+      setUserProfile(nextProfile)
+      setProfileSheet(null)
       setToast(message)
-      return
+      return true
     }
 
+    const uid = auth.currentUser.uid
+    const nickname = nextProfile.name.trim().replace(/\s+/g, ' ')
+    if (nickname.length < 2 || nickname.length > 20) {
+      setToast('닉네임은 2~20자로 입력해주세요')
+      return false
+    }
+    const nextNicknameKey = nicknamePathKey(nickname)
+    const previousNicknameKey = nicknamePathKey(userProfile.name)
     try {
-      await update(ref(database, `users/${auth.currentUser.uid}`), {
-        ...nextProfile,
-        uid: auth.currentUser.uid,
-        email: auth.currentUser.email || '',
-        profileDataVersion: PROFILE_DATA_VERSION,
-        updatedAt: serverTimestamp(),
-      })
+      const reservation = await runTransaction(ref(database, `nicknames/${nextNicknameKey}`), (ownerUid) => (
+        ownerUid === null || ownerUid === uid ? uid : undefined
+      ), { applyLocally: false })
+      if (!reservation.committed) {
+        setToast('이미 사용 중인 닉네임이에요')
+        return false
+      }
+      const savedProfile = { ...nextProfile, name: nickname }
+      const changes = {
+        [`users/${uid}`]: {
+          ...savedProfile,
+          uid,
+          email: auth.currentUser.email || '',
+          profileDataVersion: PROFILE_DATA_VERSION,
+          updatedAt: serverTimestamp(),
+        },
+        [`userDirectory/${uid}`]: {
+          name: nickname,
+          nameNormalized: normalizeNickname(nickname),
+          email: auth.currentUser.email?.toLowerCase() || '',
+          image: savedProfile.image || '/assets/default-profile.svg',
+          updatedAt: serverTimestamp(),
+        },
+      }
+      if (previousNicknameKey && previousNicknameKey !== nextNicknameKey) {
+        const previousReservation = await get(ref(database, `nicknames/${previousNicknameKey}`))
+        if (previousReservation.val() === uid) changes[`nicknames/${previousNicknameKey}`] = null
+      }
+      await update(ref(database), changes)
+      setUserProfile(savedProfile)
+      setProfileSheet(null)
       setToast(message)
+      return true
     } catch (error) {
       console.error('Profile save failed:', error)
-      setToast('화면에는 저장됐지만 DB 저장에 실패했어요')
+      setToast('닉네임 또는 프로필 저장에 실패했어요')
+      return false
     }
   }
 
@@ -1026,17 +1173,22 @@ function App() {
     }
     const changes = {
       [`rooms/${room.id}/flow/stage`]: 1,
-      [`rooms/${room.id}/flow/mode`]: 'ai',
+      [`rooms/${room.id}/flow/mode`]: room.flow?.mode || 'ai',
       [`rooms/${room.id}/flow/selectedMenu`]: null,
       [`rooms/${room.id}/flow/selectedRestaurant`]: null,
       [`rooms/${room.id}/flow/tournamentComplete`]: false,
       [`rooms/${room.id}/flow/tournamentSessionId`]: null,
+      [`rooms/${room.id}/flow/rouletteResult`]: null,
+      [`rooms/${room.id}/flow/rouletteSpinning`]: false,
+      [`rooms/${room.id}/flow/hotPotatoSessionId`]: null,
       [`rooms/${room.id}/flow/completedAt`]: null,
       [`rooms/${room.id}/flow/updatedAt`]: Date.now(),
       [`rooms/${room.id}/tournamentVotes`]: null,
+      [`rooms/${room.id}/hotPotatoChoice`]: null,
     }
     Object.keys(room.memberRecords || {}).forEach((uid) => {
       changes[`rooms/${room.id}/members/${uid}/tournamentResult`] = null
+      changes[`rooms/${room.id}/members/${uid}/hotPotatoResult`] = null
     })
     try {
       await update(ref(database), changes)
@@ -1089,23 +1241,33 @@ function App() {
     }
   }
 
-  const addFriend = async (email) => {
+  const addFriend = async (nickname) => {
     if (!authUser) return false
-    const normalizedEmail = email.trim().toLowerCase()
-    if (!normalizedEmail || normalizedEmail === authUser.email?.toLowerCase()) {
-      setToast('다른 사용자의 이메일을 입력해주세요')
+    const normalizedNickname = normalizeNickname(nickname)
+    if (!normalizedNickname || normalizedNickname === normalizeNickname(userProfile.name)) {
+      setToast('다른 사용자의 닉네임을 입력해주세요')
       return false
     }
     try {
-      const snapshot = await get(query(ref(database, 'userDirectory'), orderByChild('email'), equalTo(normalizedEmail)))
-      if (!snapshot.exists()) {
-        setToast('해당 이메일로 가입한 사용자를 찾지 못했어요')
+      const nicknameSnapshot = await get(ref(database, `nicknames/${nicknamePathKey(normalizedNickname)}`))
+      if (!nicknameSnapshot.exists()) {
+        setToast('해당 닉네임의 사용자를 찾지 못했어요')
         return false
       }
-      const [friendUid, friend] = Object.entries(snapshot.val())[0]
+      const friendUid = nicknameSnapshot.val()
+      if (friendUid === authUser.uid) {
+        setToast('내 닉네임은 친구로 추가할 수 없어요')
+        return false
+      }
+      const friendSnapshot = await get(ref(database, `userDirectory/${friendUid}`))
+      if (!friendSnapshot.exists()) {
+        setToast('친구 프로필을 불러오지 못했어요')
+        return false
+      }
+      const friend = friendSnapshot.val()
       await set(ref(database, `friends/${authUser.uid}/${friendUid}`), {
-        name: friend.name || normalizedEmail.split('@')[0],
-        email: friend.email || normalizedEmail,
+        name: friend.name || nickname.trim(),
+        nicknameNormalized: normalizedNickname,
         image: friend.image || '/assets/default-profile.svg',
         addedAt: Date.now(),
       })
@@ -1183,6 +1345,43 @@ function App() {
     }
   }
 
+  const submitHotPotatoResult = async (room, elapsedMs, sessionId) => {
+    if (!authUser || !sessionId) return false
+    try {
+      await set(ref(database, `rooms/${room.id}/members/${authUser.uid}/hotPotatoResult`), {
+        sessionId,
+        elapsedMs: Math.round(elapsedMs),
+        playerName: userProfile.name,
+        completedAt: Date.now(),
+      })
+      setToast('완주 기록을 제출했어요')
+      return true
+    } catch (error) {
+      console.error('Hot potato result save failed:', error)
+      setToast('완주 기록 저장에 실패했어요')
+      return false
+    }
+  }
+
+  const chooseHotPotatoMenu = async (room, menu, sessionId) => {
+    if (!authUser || !sessionId || !menu) return false
+    try {
+      await set(ref(database, `rooms/${room.id}/hotPotatoChoice`), {
+        sessionId,
+        winnerUid: authUser.uid,
+        winnerName: userProfile.name,
+        menu,
+        selectedAt: Date.now(),
+      })
+      setToast(`${menu} 메뉴를 선택했어요`)
+      return true
+    } catch (error) {
+      console.error('Hot potato menu choice failed:', error)
+      setToast('우승 메뉴 저장에 실패했어요')
+      return false
+    }
+  }
+
   const recordMenuHistory = async (room) => {
     if (!authUser || !room?.flow?.selectedMenu) return
     const historyRef = ref(database, `users/${authUser.uid}/menuHistory`)
@@ -1220,7 +1419,7 @@ function App() {
     )
   }
 
-  if (authUser === undefined) {
+  if (authUser === undefined || (authUser && !profileReady)) {
     return (
       <AppFrame>
         <AuthLoadingScreen />
@@ -1232,6 +1431,22 @@ function App() {
     return (
       <AppFrame>
         <LoginScreen onLogin={loginWithGoogle} busy={authBusy} error={authError} />
+      </AppFrame>
+    )
+  }
+
+  if (needsOnboarding) {
+    return (
+      <AppFrame>
+        <OnboardingScreen
+          profile={userProfile}
+          onComplete={async (profile) => {
+            const saved = await saveUserProfile({ ...profile, onboardingComplete: true }, '취향 설정을 완료했어요')
+            if (saved) setNeedsOnboarding(false)
+            return saved
+          }}
+        />
+        {toast && <Toast>{toast}</Toast>}
       </AppFrame>
     )
   }
@@ -1251,6 +1466,8 @@ function App() {
           onOpenFriends={() => setFriendSheetRoom(selectedRoom)}
           onFlowChange={(patch) => updateRoomFlow(selectedRoom, patch)}
           onTournamentSubmit={(scores, winner, sessionId) => submitTournamentResult(selectedRoom, scores, winner, sessionId)}
+          onHotPotatoSubmit={(elapsedMs, sessionId) => submitHotPotatoResult(selectedRoom, elapsedMs, sessionId)}
+          onHotPotatoChoose={(menu, sessionId) => chooseHotPotatoMenu(selectedRoom, menu, sessionId)}
           onKeep={() => keepRoomAndReturnHome(selectedRoom)}
         />
         {shareRoom && <ShareModal room={shareRoom} onClose={() => setShareRoom(null)} onToast={setToast} />}
@@ -1391,6 +1608,52 @@ function SplashScreen({ leaving }) {
         <small>스타트업톤 시연용 가상 광고입니다.</small>
         <span className="ad-badge">AD</span>
       </aside>
+    </main>
+  )
+}
+
+function OnboardingScreen({ profile, onComplete }) {
+  const [name, setName] = useState(profile.name)
+  const [busy, setBusy] = useState(false)
+  const [selected, setSelected] = useState({ cuisine: [], form: [], cooking: [], allergies: [] })
+  const [avoidedText, setAvoidedText] = useState('')
+  const options = {
+    allergies: ['난류(가금류)', '우유', '메밀', '땅콩', '대두(콩류)', '밀', '잣', '호두', '갑각류', '게', '새우', '오징어', '고등어', '조개류(굴·전복·홍합)', '복숭아', '토마토', '닭고기', '돼지고기', '쇠고기', '아황산류'],
+    cuisine: ['한식', '중식', '일식', '양식', '동남아 음식', '인도·중동 음식', '분식', '패스트푸드', '기타'],
+    form: ['밥류', '면류', '빵류', '고기류', '해산물류', '채소류', '떡류'],
+    cooking: ['국물', '볶음', '구이', '튀김', '찜', '조림', '비빔', '생식 (회·육회 등)'],
+  }
+  const toggle = (group, item) => setSelected((current) => ({
+    ...current,
+    [group]: current[group].includes(item) ? current[group].filter((value) => value !== item) : [...current[group], item],
+  }))
+  const submit = async () => {
+    setBusy(true)
+    await onComplete({
+      ...profile,
+      name: name.trim(),
+      ...selected,
+      avoided: avoidedText.split(/[,，\n]/).map((item) => item.trim()).filter(Boolean),
+    })
+    setBusy(false)
+  }
+  const hasPreference = selected.cuisine.length || selected.form.length || selected.cooking.length
+  return (
+    <main className="onboarding-page">
+      <div className="onboarding-head"><img src="/assets/modumanjok-logo.png" alt="" /><span><small>처음 오셨군요!</small><h1>내 음식 취향 설정</h1><p>모두가 함께 먹을 수 있는 메뉴를 찾기 위해 꼭 필요한 정보예요.</p></span></div>
+      <div className="onboarding-scroll">
+        <label className="field-label">사용할 닉네임<input value={name} onChange={(event) => setName(event.target.value)} maxLength={20} placeholder="2~20자 고유 닉네임" /></label>
+        {[
+          ['allergies', '1. 알레르기', '해당하는 알레르기를 먼저 선택해주세요.'],
+          ['cuisine', '2. 선호 음식 종류', '평소 좋아하는 음식 종류를 골라주세요.'],
+          ['form', '3. 선호 음식 형태', '밥·면·고기처럼 좋아하는 형태를 골라주세요.'],
+          ['cooking', '4. 선호 조리 방식', '좋아하는 조리 방식을 골라주세요.'],
+        ].map(([group, label, description]) => (
+          <section className="onboarding-choice" key={group}><strong>{label}</strong><small>{description}</small><div>{options[group].map((item) => <button type="button" key={item} className={selected[group].includes(item) ? 'selected' : ''} onClick={() => toggle(group, item)}>{item}</button>)}</div></section>
+        ))}
+        <label className="subjective-field"><strong>5. 못 먹는 음식</strong><textarea value={avoidedText} onChange={(event) => setAvoidedText(event.target.value)} placeholder="예: 가지, 고수, 오이" rows={3} /><small>쉼표 또는 줄바꿈으로 구분해주세요.</small></label>
+      </div>
+      <button type="button" className="room-primary-button onboarding-submit" disabled={busy || name.trim().length < 2 || !hasPreference} onClick={submit}>{busy ? '저장 중…' : '설정 완료하고 시작하기'} <ChevronRight size={18} /></button>
     </main>
   )
 }
@@ -1657,7 +1920,7 @@ function RoomCard({ room, onOpen, onLongPress }) {
   )
 }
 
-function RoomDetail({ room, currentUser, friends, onBack, onShare, onDelete, onLeave, onTransfer, onOpenFriends, onFlowChange, onTournamentSubmit, onKeep }) {
+function RoomDetail({ room, currentUser, friends, onBack, onShare, onDelete, onLeave, onTransfer, onOpenFriends, onFlowChange, onTournamentSubmit, onHotPotatoSubmit, onHotPotatoChoose, onKeep }) {
   const pageRef = useRef(null)
   const [stage, setStage] = useState(Number(room.flow?.stage || 0))
   const [mode, setMode] = useState(room.flow?.mode || 'ai')
@@ -1671,6 +1934,19 @@ function RoomDetail({ room, currentUser, friends, onBack, onShare, onDelete, onL
   const [tournamentMatchIndex, setTournamentMatchIndex] = useState(0)
   const [tournamentComplete, setTournamentComplete] = useState(false)
   const [tournamentScores, setTournamentScores] = useState({})
+  const [rouletteState, setRouletteState] = useState(room.flow?.rouletteResult ? 'stopped' : 'idle')
+  const [rouletteAngle, setRouletteAngle] = useState(0)
+  const [rouletteResult, setRouletteResult] = useState(room.flow?.rouletteResult || '')
+  const rouletteTimer = useRef(null)
+  const [hotPotatoPhase, setHotPotatoPhase] = useState('ready')
+  const [hotPotatoCountdown, setHotPotatoCountdown] = useState(3)
+  const [foilTaps, setFoilTaps] = useState(0)
+  const [coolProgress, setCoolProgress] = useState(0)
+  const [eatTaps, setEatTaps] = useState(0)
+  const [hotPotatoElapsed, setHotPotatoElapsed] = useState(null)
+  const hotPotatoStartedAt = useRef(0)
+  const hotPotatoCountdownTimer = useRef(null)
+  const coolPointer = useRef({ active: false, x: 0, y: 0 })
   const [selectedRestaurant, setSelectedRestaurant] = useState(room.flow?.selectedRestaurant || null)
   const [naverRestaurants, setNaverRestaurants] = useState([])
   const [restaurantSource, setRestaurantSource] = useState('location')
@@ -1688,7 +1964,12 @@ function RoomDetail({ room, currentUser, friends, onBack, onShare, onDelete, onL
   const isOwner = room.ownerId === currentUser.uid
   const memberEntries = Object.entries(room.memberRecords || {})
   const preferenceSignature = JSON.stringify(memberEntries.map(([uid, member]) => [uid, member.preferences || null]))
+  const safeMenuNames = getSafeMenuNames(room.memberRecords)
+  const rouletteMenus = [...safeMenuNames]
+    .sort((a, b) => seededMenuValue(`${room.id}-roulette-${a}`) - seededMenuValue(`${room.id}-roulette-${b}`))
+    .slice(0, 16)
   const tournamentSessionId = room.flow?.tournamentSessionId || ''
+  const hotPotatoSessionId = room.flow?.hotPotatoSessionId || ''
   const tournamentVoteMap = new Map()
   Object.entries(room.tournamentVotes || {}).forEach(([uid, vote]) => {
     if (vote?.sessionId === tournamentSessionId) tournamentVoteMap.set(uid, vote)
@@ -1706,6 +1987,15 @@ function RoomDetail({ room, currentUser, friends, onBack, onShare, onDelete, onL
     return totals
   }, {})
   const groupTournamentWinner = Object.entries(tournamentTotals).sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))[0]?.[0] || ''
+  const hotPotatoResults = memberEntries
+    .map(([uid, member]) => ({ uid, ...member.hotPotatoResult }))
+    .filter((result) => result.sessionId === hotPotatoSessionId && Number.isFinite(result.elapsedMs))
+    .sort((a, b) => a.elapsedMs - b.elapsedMs)
+  const hotPotatoAllComplete = Boolean(hotPotatoSessionId) && hotPotatoResults.length >= memberEntries.length
+  const hotPotatoWinner = hotPotatoResults[0] || null
+  const currentHotPotatoResult = room.memberRecords?.[currentUser.uid]?.hotPotatoResult
+  const hasFinishedHotPotato = currentHotPotatoResult?.sessionId === hotPotatoSessionId
+  const hotPotatoChoice = room.hotPotatoChoice?.sessionId === hotPotatoSessionId ? room.hotPotatoChoice : null
 
   useEffect(() => {
     const flow = room.flow || {}
@@ -1713,7 +2003,19 @@ function RoomDetail({ room, currentUser, friends, onBack, onShare, onDelete, onL
     setMode(flow.mode || 'ai')
     if (flow.selectedMenu) setSelectedMenu(flow.selectedMenu)
     if (flow.selectedRestaurant) setSelectedRestaurant(flow.selectedRestaurant)
-  }, [room.flow?.stage, room.flow?.mode, room.flow?.selectedMenu, room.flow?.updatedAt])
+    if (flow.rouletteSpinning) {
+      setRouletteState('spinning')
+      if (!isOwner) setRouletteAngle((current) => current + 2160)
+    } else if (flow.rouletteResult) {
+      setRouletteResult(flow.rouletteResult)
+      setRouletteState('stopped')
+    } else if (flow.mode === 'roulette') {
+      setRouletteResult('')
+      setRouletteState('idle')
+    }
+  }, [room.flow?.stage, room.flow?.mode, room.flow?.selectedMenu, room.flow?.rouletteResult, room.flow?.rouletteSpinning, room.flow?.updatedAt])
+
+  useEffect(() => () => clearTimeout(rouletteTimer.current), [])
 
   useEffect(() => {
     resetTournament()
@@ -1721,10 +2023,28 @@ function RoomDetail({ room, currentUser, friends, onBack, onShare, onDelete, onL
   }, [tournamentSessionId])
 
   useEffect(() => {
+    clearInterval(hotPotatoCountdownTimer.current)
+    setHotPotatoPhase(hasFinishedHotPotato ? 'done' : 'ready')
+    setHotPotatoCountdown(3)
+    setFoilTaps(0)
+    setCoolProgress(0)
+    setEatTaps(0)
+    setHotPotatoElapsed(hasFinishedHotPotato ? currentHotPotatoResult.elapsedMs : null)
+  }, [hotPotatoSessionId])
+
+  useEffect(() => () => clearInterval(hotPotatoCountdownTimer.current), [])
+
+  useEffect(() => {
     if (!isOwner || !tournamentAllComplete || !groupTournamentWinner || room.flow?.selectedMenu === groupTournamentWinner) return
     setSelectedMenu(groupTournamentWinner)
     onFlowChange({ selectedMenu: groupTournamentWinner, tournamentComplete: true })
   }, [isOwner, tournamentAllComplete, groupTournamentWinner, room.flow?.selectedMenu])
+
+  useEffect(() => {
+    if (!isOwner || !hotPotatoChoice?.menu || room.flow?.selectedMenu === hotPotatoChoice.menu) return
+    setSelectedMenu(hotPotatoChoice.menu)
+    moveToStage(3, { selectedMenu: hotPotatoChoice.menu })
+  }, [isOwner, hotPotatoChoice?.menu, room.flow?.selectedMenu])
 
   useEffect(() => {
     pageRef.current?.scrollTo({ top: 0, behavior: 'auto' })
@@ -1741,7 +2061,7 @@ function RoomDetail({ room, currentUser, friends, onBack, onShare, onDelete, onL
   }, [preferenceSignature])
 
   useEffect(() => {
-    if (stage !== 3 || !navigator.geolocation) return
+    if (stage < 3 || !navigator.geolocation) return
     navigator.geolocation.getCurrentPosition(
       ({ coords }) => setUserLocation({ lat: coords.latitude, lng: coords.longitude }),
       () => setUserLocation(null),
@@ -1777,7 +2097,7 @@ function RoomDetail({ room, currentUser, friends, onBack, onShare, onDelete, onL
     return () => { cancelled = true }
   }, [stage, selectedMenu, userLocation?.lat, userLocation?.lng])
 
-  const stageTitles = ['대기실', '메뉴 고르기 모드', mode === 'ai' ? 'AI 메뉴 추천' : '메뉴 이상형 월드컵', '주변 매장 찾기', '식사 준비 완료']
+  const stageTitles = ['대기실', '메뉴 고르기 모드', mode === 'ai' ? 'AI 메뉴 추천' : mode === 'tournament' ? '메뉴 이상형 월드컵' : '메뉴 룰렛', '주변 매장 찾기', '식사 준비 완료']
   const tournamentPair = tournamentRoundMenus.slice(tournamentMatchIndex * 2, tournamentMatchIndex * 2 + 2)
   const tournamentRoundLabel = tournamentRoundMenus.length === 2 ? '결승' : `${tournamentRoundMenus.length}강`
   const tournamentMatchCount = Math.max(1, tournamentRoundMenus.length / 2)
@@ -1786,11 +2106,18 @@ function RoomDetail({ room, currentUser, friends, onBack, onShare, onDelete, onL
   const restaurantOptions = naverRestaurants
 
   const resetTournament = () => {
-    setTournamentRoundMenus(tournamentMenus)
+    setTournamentRoundMenus(getTournamentBracket(room.memberRecords, tournamentSessionId || room.id))
     setTournamentRoundWinners([])
     setTournamentMatchIndex(0)
     setTournamentComplete(false)
     setTournamentScores({})
+  }
+
+  const resetRoulette = () => {
+    clearTimeout(rouletteTimer.current)
+    setRouletteState('idle')
+    setRouletteResult('')
+    setRouletteAngle(0)
   }
 
   const selectMode = (nextMode) => {
@@ -1799,7 +2126,8 @@ function RoomDetail({ room, currentUser, friends, onBack, onShare, onDelete, onL
     const firstMenu = menuCandidates[0]?.unavailable ? null : menuCandidates[0]?.name
     setSelectedMenu(nextMode === 'ai' ? firstMenu : null)
     resetTournament()
-    onFlowChange({ mode: nextMode, selectedMenu: nextMode === 'ai' ? firstMenu || '' : '' })
+    resetRoulette()
+    onFlowChange({ mode: nextMode, selectedMenu: nextMode === 'ai' ? firstMenu || '' : '', rouletteResult: null, rouletteSpinning: false })
   }
 
   const moveToStage = (nextStage, extra = {}) => {
@@ -1832,12 +2160,120 @@ function RoomDetail({ room, currentUser, friends, onBack, onShare, onDelete, onL
     setTournamentMatchIndex(0)
   }
 
+  const spinRoulette = () => {
+    if (!isOwner || rouletteState === 'spinning' || !rouletteMenus.length) return
+    const winningIndex = Math.floor(Math.random() * rouletteMenus.length)
+    const segmentSize = 360 / rouletteMenus.length
+    const targetAngle = 360 - ((winningIndex + .5) * segmentSize)
+    setRouletteState('spinning')
+    setRouletteResult('')
+    setSelectedMenu(null)
+    onFlowChange({ rouletteResult: null, rouletteSpinning: true, selectedMenu: '' })
+    setRouletteAngle((current) => {
+      const normalized = ((current % 360) + 360) % 360
+      return current + (360 * 6) + ((targetAngle - normalized + 360) % 360)
+    })
+    rouletteTimer.current = setTimeout(() => {
+      const result = rouletteMenus[winningIndex]
+      setRouletteResult(result)
+      setSelectedMenu(result)
+      setRouletteState('stopped')
+      onFlowChange({ rouletteResult: result, rouletteSpinning: false })
+    }, 4300)
+  }
+
+  const startHotPotato = () => {
+    if (hasFinishedHotPotato || hotPotatoPhase !== 'ready') return
+    let count = 3
+    setHotPotatoCountdown(count)
+    setHotPotatoPhase('countdown')
+    hotPotatoCountdownTimer.current = setInterval(() => {
+      count -= 1
+      if (count > 0) {
+        setHotPotatoCountdown(count)
+        return
+      }
+      clearInterval(hotPotatoCountdownTimer.current)
+      hotPotatoStartedAt.current = performance.now()
+      setHotPotatoPhase('foil')
+    }, 850)
+  }
+
+  const tapHotPotato = () => {
+    if (hotPotatoPhase === 'foil') {
+      setFoilTaps((current) => {
+        const next = Math.min(12, current + 1)
+        if (next >= 12) setHotPotatoPhase('cool')
+        return next
+      })
+    }
+    if (hotPotatoPhase === 'eat') {
+      setEatTaps((current) => {
+        const next = Math.min(16, current + 1)
+        if (next >= 16) {
+          const elapsed = performance.now() - hotPotatoStartedAt.current
+          setHotPotatoElapsed(elapsed)
+          setHotPotatoPhase('done')
+          onHotPotatoSubmit(elapsed, hotPotatoSessionId)
+        }
+        return next
+      })
+    }
+  }
+
+  const moveCoolingPotato = (event) => {
+    if (hotPotatoPhase !== 'cool' || !coolPointer.current.active) return
+    const distance = Math.abs(event.clientX - coolPointer.current.x) + Math.abs(event.clientY - coolPointer.current.y)
+    coolPointer.current = { active: true, x: event.clientX, y: event.clientY }
+    if (distance < 2) return
+    setCoolProgress((current) => {
+      const next = Math.min(100, current + distance / 7)
+      if (next >= 100) setHotPotatoPhase('eat')
+      return next
+    })
+  }
+
+  const startConfiguredMode = () => {
+    if (!isOwner) return
+    if (mode === 'ai') {
+      const topMenu = menuCandidates[0]?.unavailable ? '' : menuCandidates[0]?.name || ''
+      if (!topMenu) return
+      setSelectedMenu(topMenu)
+      moveToStage(3, { selectedMenu: topMenu })
+      return
+    }
+    moveToStage(2, {
+      tournamentSessionId: mode === 'tournament' ? `${Date.now()}` : null,
+      tournamentComplete: false,
+      rouletteResult: null,
+      rouletteSpinning: false,
+      hotPotatoSessionId: mode === 'competition' ? `${Date.now()}` : null,
+    })
+  }
+
+  const changeRoomMode = async (nextMode) => {
+    if (!isOwner || stage > 1) return false
+    setMode(nextMode)
+    setSelectedMenu(null)
+    resetTournament()
+    resetRoulette()
+    return onFlowChange({
+      mode: nextMode,
+      selectedMenu: '',
+      tournamentSessionId: null,
+      rouletteResult: null,
+      rouletteSpinning: false,
+      hotPotatoSessionId: null,
+    })
+  }
+
   const undoStage = () => {
     if (!isOwner) return
     if (stage === 1) moveToStage(0)
     if (stage === 2) {
-      moveToStage(1, { selectedMenu: mode === 'ai' && !menuCandidates[0]?.unavailable ? menuCandidates[0]?.name : '' })
+      moveToStage(1, { selectedMenu: mode === 'ai' && !menuCandidates[0]?.unavailable ? menuCandidates[0]?.name : '', rouletteResult: null, rouletteSpinning: false })
       resetTournament()
+      resetRoulette()
       setSelectedMenu(mode === 'ai' && !menuCandidates[0]?.unavailable ? menuCandidates[0]?.name : null)
     }
     if (stage === 3) {
@@ -1860,7 +2296,7 @@ function RoomDetail({ room, currentUser, friends, onBack, onShare, onDelete, onL
 
   const beginPullBack = (clientY) => {
     const page = pageRef.current
-    if (!page || stage === 0) return
+    if (!page || stage === 0 || (mode === 'competition' && stage >= 2)) return
     const atBottom = page.scrollHeight - page.scrollTop - page.clientHeight <= 8
     if (!atBottom) return
     pullStartY.current = clientY
@@ -1911,14 +2347,14 @@ function RoomDetail({ room, currentUser, friends, onBack, onShare, onDelete, onL
           </section>
           <section className="lobby-ready-card">
             <div><UsersRound size={20} /><span><strong>{room.members.length}명 모두 참여했어요</strong><small>방장이 시작하면 1단계로 이동합니다.</small></span></div>
-            <button type="button" className="room-primary-button" disabled={!isOwner} onClick={() => moveToStage(1, { mode: 'ai', selectedMenu: menuCandidates[0]?.unavailable ? '' : menuCandidates[0]?.name || '' })}><Play size={18} fill="currentColor" /> {isOwner ? '시작하기' : '방장이 시작하기를 기다리는 중'}</button>
+            <button type="button" className="room-primary-button" disabled={!isOwner} onClick={() => moveToStage(1, { mode, selectedMenu: '' })}><Play size={18} fill="currentColor" /> {isOwner ? '시작하기' : '방장이 시작하기를 기다리는 중'}</button>
           </section>
           <div className="lobby-invite-actions">
             <button type="button" className="share-wide secondary-share" onClick={onShare}><QrCode size={19} /> 초대 코드 보기</button>
             {isOwner && <button type="button" className="share-wide secondary-share" onClick={onOpenFriends}><UsersRound size={19} /> 친구 바로 초대</button>}
           </div>
         </div>
-        {roomSettingsOpen && <RoomSettingsModal room={room} currentUser={currentUser} onClose={() => setRoomSettingsOpen(false)} onLeave={onLeave} onDelete={onDelete} onTransfer={onTransfer} />}
+        {roomSettingsOpen && <RoomSettingsModal room={room} currentUser={currentUser} onClose={() => setRoomSettingsOpen(false)} onLeave={onLeave} onDelete={onDelete} onTransfer={onTransfer} onChangeMode={changeRoomMode} />}
       </main>
     )
   }
@@ -1944,20 +2380,14 @@ function RoomDetail({ room, currentUser, friends, onBack, onShare, onDelete, onL
 
       {stage === 1 && (
         <section className="room-stage-section">
-          <div className="room-stage-copy"><span>MODE SELECT</span><h2>어떻게 메뉴를 정할까요?</h2><p>모드를 고르면 모든 멤버에게 같은 방식이 적용돼요.</p></div>
-          <div className="mode-list">
-            <button type="button" className={`mode-card sticky-mode ${mode === 'ai' ? 'selected' : ''}`} onClick={() => selectMode('ai')}>
-              <span className="mode-icon"><Bot size={24} /></span>
-              <span><b>AI 추천</b><small>모두의 예산·취향·제외 음식을 종합해 추천해요</small><em>기본 모드</em></span>
-              <CheckCircle2 size={21} />
-            </button>
-            <button type="button" className={`mode-card ${mode === 'tournament' ? 'selected' : ''}`} onClick={() => selectMode('tournament')}>
-              <span className="mode-icon"><Swords size={24} /></span>
-              <span><b>메뉴 이상형 월드컵</b><small>각자 고른 결과를 합산해 가장 높은 메뉴를 골라요</small></span>
-              <CheckCircle2 size={21} />
-            </button>
+          <div className="room-stage-copy"><span>MODE READY</span><h2>선택된 모드로 시작할까요?</h2><p>메뉴 결정 모드는 방장이 방 설정에서 변경할 수 있어요.</p></div>
+          <div className="configured-mode-card">
+            <span className="mode-icon"><Settings2 size={25} /></span>
+            <span><small>현재 메뉴 결정 모드</small><strong>{roomModeLabels[mode] || roomModeLabels.ai}</strong></span>
+            <CheckCircle2 size={21} />
           </div>
-          <button type="button" className="room-primary-button stage-next" disabled={!isOwner} onClick={() => moveToStage(2, { tournamentSessionId: mode === 'tournament' ? `${Date.now()}` : null, tournamentComplete: false })}>{isOwner ? (mode === 'ai' ? 'AI 추천 시작하기' : '이상형 월드컵 시작하기') : '방장이 모드를 선택하고 있어요'} <ChevronRight size={18} /></button>
+          {isOwner && <button type="button" className="change-mode-button" onClick={() => setRoomSettingsOpen(true)}><Settings size={16} /> 방 설정에서 모드 변경</button>}
+          <button type="button" className="room-primary-button stage-next" disabled={!isOwner} onClick={startConfiguredMode}>{isOwner ? (mode === 'ai' ? 'AI 1위로 바로 매장 찾기' : `${roomModeLabels[mode]} 시작하기`) : '방장이 시작하기를 기다리는 중'} <ChevronRight size={18} /></button>
         </section>
       )}
 
@@ -1991,7 +2421,7 @@ function RoomDetail({ room, currentUser, friends, onBack, onShare, onDelete, onL
               <div className="tournament-pair">
                 {tournamentPair.map((menu) => (
                   <button key={menu} type="button" onClick={() => pickTournamentMenu(menu)}>
-                    <span className="tournament-food-image" style={{ backgroundImage: `url(${tournamentMenuImages[menu]})` }} role="img" aria-label={`${menu} 예시 사진`} />
+                    <span className={`tournament-food-image ${tournamentMenuImages[menu] ? '' : 'image-pending'}`} style={tournamentMenuImages[menu] ? { backgroundImage: `url(${tournamentMenuImages[menu]})` } : undefined} role="img" aria-label={`${menu} 예시 사진`}>{!tournamentMenuImages[menu] && <span>🍽️</span>}</span>
                     <strong>{menu}</strong><small>선택하기</small>
                   </button>
                 ))}
@@ -2006,6 +2436,101 @@ function RoomDetail({ room, currentUser, friends, onBack, onShare, onDelete, onL
             <div className="tournament-winner">
               <span><Trophy size={32} /></span><small>{memberEntries.length}명 점수 합산 1위</small><h2>{groupTournamentWinner}</h2><p>모든 참여자의 선택 점수를 합산한 최종 메뉴예요.</p>
               <button type="button" className="room-primary-button" disabled={!isOwner} onClick={() => moveToStage(3, { selectedMenu: groupTournamentWinner })}>{isOwner ? '이 메뉴로 매장 찾기' : '방장의 진행을 기다리는 중'} <ChevronRight size={18} /></button>
+            </div>
+          )}
+        </section>
+      )}
+
+      {stage === 2 && mode === 'roulette' && (
+        <section className="room-stage-section roulette-section">
+          <div className="room-stage-copy"><span>SAFE ROULETTE</span><h2>오늘의 메뉴를 돌려볼까요?</h2><p>모든 참여자의 못 먹는 음식과 알레르기 조건을 제외한 후보예요.</p></div>
+          <div className="roulette-window">
+            <span className="roulette-pointer" aria-hidden="true" />
+            <div
+              className={`roulette-wheel ${rouletteState}`}
+              style={{ '--roulette-angle': `${rouletteAngle}deg`, background: getRouletteGradient(rouletteMenus) }}
+              aria-label={`${rouletteMenus.length}개 메뉴 룰렛`}
+            >
+              {rouletteMenus.map((menu, index) => (
+                <span
+                  key={menu}
+                  className="roulette-label"
+                  style={{ '--label-angle': `${(index + .5) * (360 / rouletteMenus.length)}deg` }}
+                >{menu}</span>
+              ))}
+              <span className="roulette-center"><UtensilsCrossed size={28} /></span>
+            </div>
+          </div>
+          {rouletteState === 'stopped' && rouletteResult ? (
+            <div className="roulette-result"><small>룰렛 결과</small><strong>{rouletteResult}</strong></div>
+          ) : <p className="roulette-guide">{rouletteState === 'spinning' ? '메뉴를 고르는 중이에요…' : `${rouletteMenus.length}개 안전 후보가 준비됐어요.`}</p>}
+          {rouletteState === 'idle' && (
+            <button type="button" className="room-primary-button roulette-spin-button" disabled={!isOwner} onClick={spinRoulette}><Play size={18} fill="currentColor" /> {isOwner ? '돌리기' : '방장이 룰렛을 돌리는 중'}</button>
+          )}
+          {rouletteState === 'spinning' && <button type="button" className="room-primary-button roulette-spin-button" disabled><span className="mini-spinner" /> 돌아가는 중</button>}
+          {rouletteState === 'stopped' && (
+            <div className="roulette-actions">
+              <button type="button" className="room-primary-button secondary-share" disabled={!isOwner} onClick={spinRoulette}><RotateCcw size={17} /> 다시 돌리기</button>
+              <button type="button" className="room-primary-button" disabled={!isOwner || !rouletteResult} onClick={() => moveToStage(3, { selectedMenu: rouletteResult })}>{rouletteResult || '메뉴'} 선택 <ChevronRight size={17} /></button>
+            </div>
+          )}
+        </section>
+      )}
+
+      {stage === 2 && mode === 'competition' && (
+        <section className="room-stage-section hot-potato-section">
+          <div className="room-stage-copy"><span>HOT POTATO CHALLENGE</span><h2>가장 빠르게 감자를 먹어보세요!</h2><p>시작은 개인별로 진행되며 3·2·1 이후부터 완주까지의 시간을 측정해요.</p></div>
+          {!hasFinishedHotPotato && hotPotatoPhase !== 'done' ? (
+            <>
+              {hotPotatoPhase === 'ready' ? (
+                <div className="hot-potato-intro">
+                  <span>🥔</span>
+                  <ol><li>화면을 연타해 호일 벗기기</li><li>손가락으로 흔들어 감자 식히기</li><li>다시 연타해 가장 먼저 먹기</li></ol>
+                  <button type="button" className="room-primary-button" onClick={startHotPotato}><Play size={18} fill="currentColor" /> 내 도전 시작</button>
+                </div>
+              ) : hotPotatoPhase === 'countdown' ? (
+                <div className="hot-potato-countdown"><span>{hotPotatoCountdown}</span><small>준비!</small></div>
+              ) : (
+                <>
+                  <div
+                    className={`hot-potato-arena ${hotPotatoPhase}`}
+                    style={{ '--foil-left': `${Math.max(0, 100 - (foilTaps / 12) * 100)}%`, '--eaten': `${Math.min(100, (eatTaps / 16) * 100)}%` }}
+                    onClick={tapHotPotato}
+                    onPointerDown={(event) => {
+                      if (hotPotatoPhase !== 'cool') return
+                      event.currentTarget.setPointerCapture?.(event.pointerId)
+                      coolPointer.current = { active: true, x: event.clientX, y: event.clientY }
+                    }}
+                    onPointerMove={moveCoolingPotato}
+                    onPointerUp={() => { coolPointer.current.active = false }}
+                    onPointerCancel={() => { coolPointer.current.active = false }}
+                  >
+                    <div className="hot-potato-visual"><span className="potato-body">🥔</span><span className="foil-layer" /></div>
+                    <strong>{hotPotatoPhase === 'foil' ? '연타해서 호일을 벗겨요!' : hotPotatoPhase === 'cool' ? '좌우로 빠르게 흔들어 식혀요!' : '연타해서 감자를 먹어요!'}</strong>
+                    <div className="hot-potato-progress"><span style={{ width: `${hotPotatoPhase === 'foil' ? (foilTaps / 12) * 100 : hotPotatoPhase === 'cool' ? coolProgress : (eatTaps / 16) * 100}%` }} /></div>
+                  </div>
+                  <p className="prototype-note"><Info size={14} /> 경쟁을 시작한 뒤에는 실행 취소로 이전 단계에 돌아갈 수 없어요.</p>
+                </>
+              )}
+            </>
+          ) : (
+            <div className="hot-potato-results">
+              <div className="hot-potato-my-record"><CheckCircle2 size={20} /><span><small>내 완주 기록</small><strong>{((hotPotatoElapsed ?? currentHotPotatoResult?.elapsedMs ?? 0) / 1000).toFixed(2)}초</strong></span></div>
+              <div className="hot-potato-leaderboard">
+                {hotPotatoResults.map((result, index) => <div key={result.uid}><span>{index + 1}</span><b>{result.playerName || room.memberRecords?.[result.uid]?.name || '참여자'}</b><strong>{(result.elapsedMs / 1000).toFixed(2)}초</strong></div>)}
+              </div>
+              {!hotPotatoAllComplete ? (
+                <p className="hot-potato-waiting">다른 참여자를 기다리는 중 · {hotPotatoResults.length}/{memberEntries.length}명 완료</p>
+              ) : hotPotatoChoice ? (
+                <div className="hot-potato-winner"><Trophy size={25} /><small>{hotPotatoChoice.winnerName}님의 선택</small><strong>{hotPotatoChoice.menu}</strong></div>
+              ) : hotPotatoWinner?.uid === currentUser.uid ? (
+                <div className="winner-menu-picker">
+                  <div><Trophy size={24} /><span><small>최종 우승</small><strong>메뉴를 직접 정해주세요!</strong></span></div>
+                  <div className="winner-menu-grid">{safeMenuNames.map((menu) => <button type="button" key={menu} onClick={() => onHotPotatoChoose(menu, hotPotatoSessionId)}>{menu}</button>)}</div>
+                </div>
+              ) : (
+                <div className="hot-potato-winner"><Trophy size={25} /><small>최종 우승</small><strong>{hotPotatoWinner?.playerName || '우승자'}님의 메뉴 선택을 기다려요</strong></div>
+              )}
             </div>
           )}
         </section>
@@ -2060,6 +2585,11 @@ function RoomDetail({ room, currentUser, friends, onBack, onShare, onDelete, onL
             <div><span>매장</span><strong>{selectedRestaurant?.name}</strong></div>
             <div><span>이동</span><strong>{selectedRestaurant?.walk}</strong></div>
           </div>
+          <div className="finish-route-map">
+            <div><Navigation size={15} /><span>현재 위치에서 매장까지</span><small>{selectedRestaurant?.distance || selectedRestaurant?.walk}</small></div>
+            <NaverRestaurantMap restaurants={selectedRestaurant ? [selectedRestaurant] : []} selectedRestaurant={selectedRestaurant} userLocation={userLocation} showRoute />
+            {selectedRestaurant?.name && <a href={`https://map.naver.com/p/search/${encodeURIComponent(selectedRestaurant.name)}`} target="_blank" rel="noreferrer">네이버 지도에서 매장·길찾기 열기 <ExternalLink size={13} /></a>}
+          </div>
           {!confirmDelete ? (
             <button type="button" className="room-primary-button danger-button" onClick={() => setConfirmDelete(true)}><Trash2 size={18} /> 식사 완료 · 방 종료</button>
           ) : (
@@ -2080,8 +2610,8 @@ function RoomDetail({ room, currentUser, friends, onBack, onShare, onDelete, onL
           <span>{pullBack.armed ? '이전으로 갈까요?' : '조금 더 위로 당겨주세요'}</span>
         </div>
       )}
-      {isOwner && <button type="button" className="room-undo-button" onClick={undoStage} aria-label="이전 단계로 돌아가기"><RotateCcw size={17} /> 실행 취소</button>}
-      {roomSettingsOpen && <RoomSettingsModal room={room} currentUser={currentUser} onClose={() => setRoomSettingsOpen(false)} onLeave={onLeave} onDelete={onDelete} onTransfer={onTransfer} />}
+      {isOwner && !(mode === 'competition' && stage >= 2) && <button type="button" className="room-undo-button" onClick={undoStage} aria-label="이전 단계로 돌아가기"><RotateCcw size={17} /> 실행 취소</button>}
+      {roomSettingsOpen && <RoomSettingsModal room={room} currentUser={currentUser} onClose={() => setRoomSettingsOpen(false)} onLeave={onLeave} onDelete={onDelete} onTransfer={onTransfer} onChangeMode={changeRoomMode} />}
     </main>
   )
 }
@@ -2259,7 +2789,7 @@ function ProfileEditSheet({ profile, onClose, onSave }) {
           <img src={image} alt="프로필 미리보기" />
           <label className="photo-change-button"><Camera size={16} /> 사진 변경<input type="file" accept="image/*" onChange={chooseImage} /></label>
         </div>
-        <label className="field-label">이름<input value={name} onChange={(event) => setName(event.target.value)} placeholder="이름을 입력해주세요" /></label>
+        <label className="field-label">닉네임<input value={name} onChange={(event) => setName(event.target.value)} placeholder="고유 닉네임을 입력해주세요" maxLength={20} /></label>
         <button type="button" className="sheet-submit" onClick={() => onSave({ ...profile, name: name.trim() || profile.name || '사용자', image })}>저장하기</button>
       </section>
     </div>
@@ -2296,10 +2826,14 @@ function TasteEditSheet({ profile, onClose, onSave }) {
         <button type="button" className="modal-close" onClick={onClose} aria-label="닫기"><X size={21} /></button>
         <h2 id="taste-edit-title">음식 취향 설정</h2>
         <p>해당하는 항목을 모두 선택해주세요.</p>
+        <div className="chip-group allergy-first-group">
+          <strong>1. 알레르기</strong>
+          <div>{options.allergies.map((item) => <button type="button" key={item} className={selected.allergies.includes(item) ? 'selected' : ''} onClick={() => toggle('allergies', item)}>{item}</button>)}</div>
+        </div>
         {[
-          ['cuisine', '1. 음식 종류'],
-          ['form', '2. 음식 형태'],
-          ['cooking', '3. 조리 방식'],
+          ['cuisine', '2. 음식 종류'],
+          ['form', '3. 음식 형태'],
+          ['cooking', '4. 조리 방식'],
         ].map(([group, label]) => (
           <div className="chip-group" key={group}>
             <strong>{label}</strong>
@@ -2307,14 +2841,10 @@ function TasteEditSheet({ profile, onClose, onSave }) {
           </div>
         ))}
         <label className="subjective-field">
-          <strong>못 먹는 음식</strong>
+          <strong>5. 못 먹는 음식</strong>
           <textarea value={avoidedText} onChange={(event) => setAvoidedText(event.target.value)} placeholder="예: 가지, 고수, 오이" rows={3} />
           <small>여러 음식은 쉼표 또는 줄바꿈으로 구분해주세요.</small>
         </label>
-        <div className="chip-group">
-          <strong>알레르기</strong>
-          <div>{options.allergies.map((item) => <button type="button" key={item} className={selected.allergies.includes(item) ? 'selected' : ''} onClick={() => toggle('allergies', item)}>{item}</button>)}</div>
-        </div>
         <button type="button" className="sheet-submit" onClick={() => onSave({
           ...profile,
           ...selected,
@@ -2338,7 +2868,7 @@ function BottomNav({ active, onChange }) {
   )
 }
 
-function RoomSettingsModal({ room, currentUser, onClose, onLeave, onDelete, onTransfer }) {
+function RoomSettingsModal({ room, currentUser, onClose, onLeave, onDelete, onTransfer, onChangeMode }) {
   const isOwner = room.ownerId === currentUser.uid
   const otherMembers = Object.entries(room.memberRecords || {}).filter(([uid]) => uid !== currentUser.uid)
   const [nextOwnerId, setNextOwnerId] = useState(otherMembers[0]?.[0] || '')
@@ -2364,6 +2894,28 @@ function RoomSettingsModal({ room, currentUser, onClose, onLeave, onDelete, onTr
         <span className="modal-icon"><Settings size={24} /></span>
         <h2 id="room-settings-title">방 설정</h2>
         <p>{room.name} · 코드 {room.code}</p>
+
+        {isOwner && (
+          <div className="room-mode-setting">
+            <strong>메뉴 결정 모드</strong>
+            <p>{Number(room.flow?.stage || 0) > 1 ? '진행 중에는 모드를 변경할 수 없어요.' : '방장이 사용할 모드를 선택해주세요.'}</p>
+            <div>
+              {Object.entries(roomModeLabels).map(([value, label]) => (
+                <button
+                  type="button"
+                  key={value}
+                  className={(room.flow?.mode || 'ai') === value ? 'selected' : ''}
+                  disabled={busy || Number(room.flow?.stage || 0) > 1}
+                  onClick={() => run(() => onChangeMode(value))}
+                >
+                  <span>{value === 'ai' ? 'AI' : value === 'tournament' ? 'VS' : value === 'roulette' ? '↻' : '🔥'}</span>
+                  <b>{label}</b>
+                  <CheckCircle2 size={16} />
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
 
         {isOwner && otherMembers.length > 0 && (
           <div className="owner-transfer-block">
@@ -2394,12 +2946,12 @@ function RoomSettingsModal({ room, currentUser, onClose, onLeave, onDelete, onTr
 }
 
 function FriendInviteSheet({ room, friends, onClose, onAddFriend, onInvite }) {
-  const [email, setEmail] = useState('')
+  const [nickname, setNickname] = useState('')
   const [busy, setBusy] = useState(false)
   const add = async () => {
     setBusy(true)
-    const success = await onAddFriend(email)
-    if (success) setEmail('')
+    const success = await onAddFriend(nickname)
+    if (success) setNickname('')
     setBusy(false)
   }
   return (
@@ -2409,10 +2961,10 @@ function FriendInviteSheet({ room, friends, onClose, onAddFriend, onInvite }) {
         <button type="button" className="modal-close" onClick={onClose} aria-label="닫기"><X size={21} /></button>
         <span className="modal-icon"><UsersRound size={24} /></span>
         <h2 id="friend-invite-title">친구 초대</h2>
-        <p>Google 계정 이메일로 친구를 찾고 방에 바로 초대할 수 있어요.</p>
+        <p>고유 닉네임으로 친구를 찾고 방에 바로 초대할 수 있어요.</p>
         <div className="friend-add-row">
-          <input value={email} onChange={(event) => setEmail(event.target.value)} placeholder="친구 이메일" type="email" />
-          <button type="button" disabled={!email.trim() || busy} onClick={add}><Plus size={17} /> 추가</button>
+          <input value={nickname} onChange={(event) => setNickname(event.target.value)} placeholder="친구 닉네임" type="text" maxLength={20} />
+          <button type="button" disabled={!nickname.trim() || busy} onClick={add}><Plus size={17} /> 추가</button>
         </div>
         <div className="friend-list">
           {friends.length ? friends.map((friend) => {
@@ -2420,7 +2972,7 @@ function FriendInviteSheet({ room, friends, onClose, onAddFriend, onInvite }) {
             return (
               <div key={friend.uid}>
                 <img src={friend.image || '/assets/default-profile.svg'} alt="" />
-                <span><b>{friend.name}</b><small>{friend.email}</small></span>
+                <span><b>{friend.name}</b><small>@{friend.nicknameNormalized || normalizeNickname(friend.name)}</small></span>
                 <button type="button" disabled={joined} onClick={() => onInvite(friend)}>{joined ? '참여 중' : '초대'}</button>
               </div>
             )
