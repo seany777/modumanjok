@@ -1,7 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react'
 import { createRoot } from 'react-dom/client'
 import QRCode from 'qrcode'
-import { onAuthStateChanged, signInWithPopup, signInWithRedirect, signOut } from 'firebase/auth'
+import { onAuthStateChanged, signInAnonymously, signInWithPopup, signInWithRedirect, signOut } from 'firebase/auth'
 import { equalTo, get, onValue, orderByChild, query, ref, runTransaction, serverTimestamp, set, update } from 'firebase/database'
 import {
   ArrowLeft,
@@ -643,6 +643,7 @@ const homeTitleMessages = [
 const createInviteCode = () => Math.random().toString(36).slice(2, 8).toUpperCase()
 const normalizeNickname = (value = '') => value.trim().replace(/\s+/g, ' ').toLocaleLowerCase('ko-KR')
 const nicknamePathKey = (value = '') => encodeURIComponent(normalizeNickname(value)).replace(/\./g, '%2E')
+const createGuestNickname = (uid = '') => `너구리-${uid.slice(-6).toUpperCase() || Math.random().toString(16).slice(2, 8).toUpperCase()}`
 
 const normalizeRoom = (id, room) => {
   const memberRecords = room?.members || {}
@@ -851,7 +852,7 @@ function App() {
 
     const googleProfile = {
       ...defaultUserProfile,
-      name: user.displayName || user.email?.split('@')[0] || '사용자',
+      name: user.isAnonymous ? createGuestNickname(user.uid) : user.displayName || user.email?.split('@')[0] || '사용자',
       image: user.photoURL || defaultUserProfile.image,
     }
     setUserProfile(googleProfile)
@@ -1013,6 +1014,20 @@ function App() {
           ? 'Firebase Authentication에서 Google 로그인을 활성화해주세요.'
           : 'Google 로그인에 실패했어요. 잠시 후 다시 시도해주세요.'
       setAuthError(message)
+      setAuthBusy(false)
+    }
+  }
+
+  const continueAsGuest = async () => {
+    setAuthBusy(true)
+    setAuthError('')
+    try {
+      await signInAnonymously(auth)
+    } catch (error) {
+      console.error('Guest login failed:', error)
+      setAuthError(error.code === 'auth/operation-not-allowed'
+        ? 'Firebase Authentication에서 익명 로그인을 활성화해주세요.'
+        : '비회원으로 시작하지 못했어요. 잠시 후 다시 시도해주세요.')
       setAuthBusy(false)
     }
   }
@@ -1459,7 +1474,7 @@ function App() {
   if (!authUser) {
     return (
       <AppFrame>
-        <LoginScreen onLogin={loginWithGoogle} busy={authBusy} error={authError} />
+        <LoginScreen onLogin={loginWithGoogle} onGuest={continueAsGuest} busy={authBusy} error={authError} />
       </AppFrame>
     )
   }
@@ -1467,14 +1482,25 @@ function App() {
   if (needsOnboarding) {
     return (
       <AppFrame>
-        <OnboardingScreen
-          profile={userProfile}
-          onComplete={async (profile) => {
-            const saved = await saveUserProfile({ ...profile, onboardingComplete: true }, '취향 설정을 완료했어요')
-            if (saved) setNeedsOnboarding(false)
-            return saved
-          }}
-        />
+        {authUser.isAnonymous ? (
+          <GuestOnboardingScreen
+            profile={userProfile}
+            onComplete={async (profile) => {
+              const saved = await saveUserProfile({ ...profile, onboardingComplete: true }, '비회원 설정을 완료했어요')
+              if (saved) setNeedsOnboarding(false)
+              return saved
+            }}
+          />
+        ) : (
+          <OnboardingScreen
+            profile={userProfile}
+            onComplete={async (profile) => {
+              const saved = await saveUserProfile({ ...profile, onboardingComplete: true }, '취향 설정을 완료했어요')
+              if (saved) setNeedsOnboarding(false)
+              return saved
+            }}
+          />
+        )}
         {toast && <Toast>{toast}</Toast>}
       </AppFrame>
     )
@@ -1523,6 +1549,7 @@ function App() {
             onOpenRoom={openRoom}
             onGoRooms={() => navigateTo('/rooms')}
             onOpenCreate={() => setSheet('create')}
+            onOpenJoin={() => { setPendingJoinCode(''); setSheet('join') }}
             onOpenHistory={() => {
               setProfileFocus('history')
               navigateTo('/profile')
@@ -1562,8 +1589,8 @@ function App() {
             profile={userProfile}
             focusTarget={profileFocus}
             onOpenSettings={() => navigateTo('/settings')}
-            onEditProfile={() => setProfileSheet('profile')}
-            onEditTaste={() => setProfileSheet('taste')}
+            onEditProfile={() => authUser.isAnonymous ? setToast('비회원은 프로필 설정을 사용할 수 없어요') : setProfileSheet('profile')}
+            onEditTaste={() => authUser.isAnonymous ? setToast('비회원은 처음 설정한 취향만 사용할 수 있어요') : setProfileSheet('taste')}
           />
         ))}
       </main>
@@ -1687,7 +1714,40 @@ function OnboardingScreen({ profile, onComplete }) {
   )
 }
 
-function LoginScreen({ onLogin, busy, error }) {
+function GuestOnboardingScreen({ profile, onComplete }) {
+  const [selectedAllergies, setSelectedAllergies] = useState(profile.allergies || [])
+  const [selectedKinds, setSelectedKinds] = useState([])
+  const [busy, setBusy] = useState(false)
+  const allergies = ['난류(가금류)', '우유', '메밀', '땅콩', '대두(콩류)', '밀', '잣', '호두', '갑각류', '게', '새우', '오징어', '고등어', '조개류(굴·전복·홍합)', '복숭아', '토마토', '닭고기', '돼지고기', '쇠고기', '아황산류']
+  const kinds = ['국', '탕', '밥']
+  const toggle = (setter, item) => setter((current) => current.includes(item) ? current.filter((value) => value !== item) : [...current, item])
+  const submit = async () => {
+    setBusy(true)
+    const saved = await onComplete({
+      ...profile,
+      allergies: selectedAllergies,
+      cuisine: ['한식'],
+      form: selectedKinds.includes('밥') ? ['밥류'] : [],
+      cooking: selectedKinds.some((kind) => kind === '국' || kind === '탕') ? ['국물'] : [],
+      guestKinds: selectedKinds,
+      avoided: [],
+    })
+    if (!saved) setBusy(false)
+  }
+  return (
+    <main className="onboarding-page guest-onboarding-page">
+      <div className="onboarding-head"><img src="/assets/modumanjok-logo.png" alt="" /><span><small>빠르게 시작하기</small><h1>비회원 간단 설정</h1><p>알레르기와 국·탕·밥 취향만 고르면 바로 모임에 참여할 수 있어요.</p></span></div>
+      <div className="guest-name-chip"><span>임시 닉네임</span><strong>{profile.name}</strong><small>프로필 설정에서 변경할 수 없어요.</small></div>
+      <div className="onboarding-scroll guest-onboarding-scroll">
+        <section className="onboarding-choice"><strong>1. 알레르기</strong><small>해당하는 항목을 모두 선택해주세요. 없으면 건너뛰어도 돼요.</small><div>{allergies.map((item) => <button type="button" key={item} className={selectedAllergies.includes(item) ? 'selected' : ''} onClick={() => toggle(setSelectedAllergies, item)}>{item}</button>)}</div></section>
+        <section className="onboarding-choice"><strong>2. 먹고 싶은 형태</strong><small>국, 탕, 밥 중 원하는 메뉴 형태를 골라주세요.</small><div>{kinds.map((item) => <button type="button" key={item} className={selectedKinds.includes(item) ? 'selected' : ''} onClick={() => toggle(setSelectedKinds, item)}>{item}</button>)}</div></section>
+      </div>
+      <button type="button" className="room-primary-button onboarding-submit" disabled={busy || !selectedKinds.length} onClick={submit}>{busy ? '저장 중…' : '설정 완료하고 방 접속하기'} <ChevronRight size={18} /></button>
+    </main>
+  )
+}
+
+function LoginScreen({ onLogin, onGuest, busy, error }) {
   return (
     <main className="auth-page login-page">
       <div className="login-copy">
@@ -1704,6 +1764,7 @@ function LoginScreen({ onLogin, busy, error }) {
           <span className="google-mark">G</span>
           {busy ? 'Google 연결 중…' : 'Google로 계속하기'}
         </button>
+        <button type="button" className="guest-login-button" onClick={onGuest} disabled={busy}>비회원으로 계속</button>
         {error && <p className="auth-error"><AlertTriangle size={14} /> {error}</p>}
         <small>계속하면 서비스 이용약관과 개인정보 처리방침에 동의하게 됩니다.</small>
       </div>
@@ -1747,7 +1808,7 @@ function AnimatedHomeTitle({ children }) {
   )
 }
 
-function HomeScreen({ rooms, onOpenRoom, onGoRooms, onOpenCreate, onOpenHistory, onOpenTaste }) {
+function HomeScreen({ rooms, onOpenRoom, onGoRooms, onOpenCreate, onOpenJoin, onOpenHistory, onOpenTaste }) {
   const recentRoom = rooms[0]
   const [homeTitle] = useState(() => homeTitleMessages[Math.floor(Math.random() * homeTitleMessages.length)])
   return (
@@ -1788,7 +1849,7 @@ function HomeScreen({ rooms, onOpenRoom, onGoRooms, onOpenCreate, onOpenHistory,
           </div>
         </div>
         <div className="quick-grid">
-          <button type="button" onClick={onGoRooms}><span className="quick-icon"><UsersRound size={22} /></span><b>내 모임</b><small>{rooms.length}개의 방</small></button>
+          <button type="button" onClick={onOpenJoin}><span className="quick-icon"><LogIn size={22} /></span><b>코드로 방 접속</b><small>초대 코드 입력</small></button>
           <button type="button" onClick={onOpenHistory}><span className="quick-icon coral"><UtensilsCrossed size={22} /></span><b>최근 메뉴</b><small>결정 기록</small></button>
           <button type="button" onClick={onOpenTaste}><span className="quick-icon sky"><Coffee size={22} /></span><b>취향 설정</b><small>내 조건 관리</small></button>
         </div>
