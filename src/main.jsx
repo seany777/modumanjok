@@ -6,7 +6,6 @@ import { equalTo, get, onValue, orderByChild, query, ref, runTransaction, server
 import {
   ArrowLeft,
   AlertTriangle,
-  Bell,
   Bot,
   Camera,
   CheckCircle2,
@@ -1726,12 +1725,7 @@ function Header({ eyebrow, title, back, onBack, action }) {
           <h1>{title}</h1>
         </div>
       </div>
-      {action || (
-        <button type="button" className="icon-button" aria-label="알림">
-          <Bell size={21} />
-          <span className="notification-dot" />
-        </button>
-      )}
+      {action}
     </header>
   )
 }
@@ -1952,6 +1946,7 @@ function RoomCard({ room, onOpen, onLongPress }) {
 
 function RoomDetail({ room, currentUser, friends, onBack, onShare, onDelete, onLeave, onTransfer, onOpenFriends, onFlowChange, onTournamentSubmit, onHotPotatoSubmit, onHotPotatoChoose, onKeep }) {
   const pageRef = useRef(null)
+  const menuConfirmationRef = useRef({ roomId: room.id, stage: Number(room.flow?.stage || 0) })
   const [stage, setStage] = useState(Number(room.flow?.stage || 0))
   const [mode, setMode] = useState(room.flow?.mode || 'ai')
   const [selectedMenu, setSelectedMenu] = useState(room.flow?.selectedMenu || aiMenuCandidates[0].name)
@@ -2046,6 +2041,21 @@ function RoomDetail({ room, currentUser, friends, onBack, onShare, onDelete, onL
       setRouletteState('idle')
     }
   }, [room.flow?.stage, room.flow?.mode, room.flow?.selectedMenu, room.flow?.rouletteResult, room.flow?.rouletteSpinning, room.flow?.updatedAt])
+
+  useEffect(() => {
+    const nextStage = Number(room.flow?.stage || 0)
+    const previous = menuConfirmationRef.current
+    menuConfirmationRef.current = { roomId: room.id, stage: nextStage }
+    if (previous.roomId !== room.id || previous.stage >= 3 || nextStage !== 3 || !room.flow?.selectedMenu) return
+    if (document.visibilityState !== 'visible' || !window.matchMedia('(pointer: coarse)').matches) return
+    if (typeof navigator.vibrate === 'function') {
+      try {
+        navigator.vibrate([120, 80, 120])
+      } catch {
+        // Vibration may be blocked by the device or browser settings.
+      }
+    }
+  }, [room.id, room.flow?.stage, room.flow?.selectedMenu])
 
   useEffect(() => () => clearTimeout(rouletteTimer.current), [])
 
@@ -2415,7 +2425,7 @@ function RoomDetail({ room, currentUser, friends, onBack, onShare, onDelete, onL
       <Header
         back
         onBack={onBack}
-        eyebrow={`STEP ${stage} OF 4`}
+        eyebrow={`STEP ${mode === 'ai' && stage >= 3 ? stage - 1 : stage} OF ${mode === 'ai' ? 3 : 4}`}
         title={stageTitles[stage]}
         action={<button type="button" className="icon-button" onClick={() => setRoomSettingsOpen(true)} aria-label="방 설정"><Settings size={21} /></button>}
       />
