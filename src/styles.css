@@ -858,6 +858,22 @@ button:focus-visible, input:focus-visible { outline: 3px solid rgba(22, 35, 30, 
   .app-frame { box-shadow: none; }
 }
 
+/* Keep banner actions in the text flow so larger type cannot overlap them. */
+.home-page .home-ad-card {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  padding-bottom: 38px;
+}
+.home-page .home-ad-card p { line-height: 1.5; }
+.home-page .home-ad-card > button {
+  position: relative;
+  left: auto;
+  bottom: auto;
+  flex-shrink: 0;
+  margin-top: 12px;
+}
+
 /* Product hierarchy: core actions first, promotion last. */
 :root { --muted: #6f6259; }
 :root[data-theme="dark"] { --muted: #d0beb2; }
