@@ -15,6 +15,7 @@ import {
   Coffee,
   Copy,
   Crown,
+  Download,
   ExternalLink,
   Flag,
   Home,
@@ -50,6 +51,17 @@ import {
 } from 'lucide-react'
 import { auth, database, googleProvider } from './firebase'
 import './styles.css'
+
+let pendingInstallPrompt = null
+window.addEventListener('beforeinstallprompt', (event) => {
+  event.preventDefault()
+  pendingInstallPrompt = event
+  window.dispatchEvent(new Event('modumanjok-install-ready'))
+})
+window.addEventListener('appinstalled', () => {
+  pendingInstallPrompt = null
+  window.dispatchEvent(new Event('modumanjok-installed'))
+})
 
 const aiMenuCandidates = [
   { name: '제육볶음', score: 94, reason: '예산과 한식 선호를 가장 고르게 만족해요' },
@@ -734,9 +746,11 @@ const loadKakaoSdk = () => {
 
 const shareRoomInvite = async (room, onToast, context = '') => {
   const inviteUrl = `${window.location.origin}/join/${encodeURIComponent(room.code)}`
-  const title = context ? `${room.name} · ${context}` : `${room.name}에 초대합니다`
-  const description = context
-    ? `${context} 메뉴가 정해졌어요. 모임 진행을 이어가려면 아래 링크로 접속해주세요.`
+  const menu = typeof context === 'string' ? context : context?.menu
+  const restaurant = typeof context === 'object' ? context?.restaurant : ''
+  const title = menu ? `${room.name} · ${menu}` : `${room.name}에 초대합니다`
+  const description = menu
+    ? `${menu}${restaurant ? ` · ${restaurant}` : ''}으로 결정했어요. 아래 링크에서 모임을 확인해주세요.`
     : '초대 링크를 눌러 모임에 참여해주세요.'
   const kakaoKey = import.meta.env.VITE_KAKAO_JS_KEY
   try {
@@ -2602,7 +2616,13 @@ function RoomDetail({ room, currentUser, friends, onBack, onShare, onKakaoShare,
     if (!isOwner) return
     if (stage === 1) moveToStage(0)
     if (stage === 2) {
-      moveToStage(1, { selectedMenu: mode === 'ai' && !menuCandidates[0]?.unavailable ? menuCandidates[0]?.name : '', rouletteResult: null, rouletteSpinning: false })
+      clearInterval(hotPotatoCountdownTimer.current)
+      moveToStage(1, {
+        selectedMenu: mode === 'ai' && !menuCandidates[0]?.unavailable ? menuCandidates[0]?.name : '',
+        rouletteResult: null,
+        rouletteSpinning: false,
+        ...(mode === 'competition' ? { hotPotatoSessionId: null } : {}),
+      })
       resetTournament()
       resetRoulette()
       setSelectedMenu(mode === 'ai' && !menuCandidates[0]?.unavailable ? menuCandidates[0]?.name : null)
@@ -2612,10 +2632,11 @@ function RoomDetail({ room, currentUser, friends, onBack, onShare, onKakaoShare,
       moveToStage(previousStage, {
         selectedRestaurant: null,
         ...(mode === 'ai' ? { selectedMenu: '' } : {}),
+        ...(mode === 'competition' ? { selectedMenu: '', hotPotatoSessionId: `${Date.now()}` } : {}),
       })
       setSelectedRestaurant(null)
       setExpandedRestaurant(null)
-      if (mode === 'ai') setSelectedMenu(null)
+      if (mode === 'ai' || mode === 'competition') setSelectedMenu(null)
     }
     if (stage === 4) {
       moveToStage(3, { completedAt: null })
@@ -2632,7 +2653,7 @@ function RoomDetail({ room, currentUser, friends, onBack, onShare, onKakaoShare,
 
   const beginPullBack = (clientY) => {
     const page = pageRef.current
-    if (!isOwner || !page || stage === 0 || (mode === 'competition' && stage >= 2)) return
+    if (!isOwner || !page || stage === 0) return
     const atBottom = page.scrollHeight - page.scrollTop - page.clientHeight <= 8
     if (!atBottom) return
     pullStartY.current = clientY
@@ -2850,7 +2871,7 @@ function RoomDetail({ room, currentUser, friends, onBack, onShare, onKakaoShare,
                     <strong>{hotPotatoPhase === 'foil' ? '연타해서 호일을 벗겨요!' : hotPotatoPhase === 'cool' ? '좌우로 빠르게 흔들어 식혀요!' : '연타해서 감자를 먹어요!'}</strong>
                     <div className="hot-potato-progress"><span style={{ width: `${hotPotatoPhase === 'foil' ? (foilTaps / 12) * 100 : hotPotatoPhase === 'cool' ? coolProgress : (eatTaps / 16) * 100}%` }} /></div>
                   </div>
-                  <p className="prototype-note"><Info size={14} /> 경쟁을 시작한 뒤에는 실행 취소로 이전 단계에 돌아갈 수 없어요.</p>
+                  <p className="prototype-note"><Info size={14} /> 방장이 실행 취소하면 이번 도전 기록은 초기화돼요.</p>
                 </>
               )}
             </>
@@ -2880,7 +2901,6 @@ function RoomDetail({ room, currentUser, friends, onBack, onShare, onKakaoShare,
       {stage === 3 && (
         <section className="room-stage-section">
           <div className="selected-menu-banner"><span><CheckCircle2 size={22} /></span><div><small>선택한 메뉴</small><strong>{selectedMenu}</strong></div></div>
-          <button type="button" className="menu-share-button" onClick={() => onKakaoShare?.(selectedMenu)}><MessageCircleMore size={16} /> 메뉴 결정 링크를 카카오톡으로 공유</button>
           <div className="location-line"><Navigation size={16} /><span>{locationMode === 'manual' ? '입력한 위치 기준 거리' : userLocation ? '내 현재 위치 기준 거리' : '현재 위치 확인 전'}</span><small>{locationMode === 'manual' ? locationText : userLocation ? `${userLocation.lat.toFixed(3)}, ${userLocation.lng.toFixed(3)}` : '위치 권한 필요'}</small></div>
           {(userLocation || locationMode === 'manual') && <p className={`data-range-note ${restaurantSource}`}><Info size={13} /> {currentArea && <strong>{currentArea}</strong>} {restaurantMessage || '현재 위치를 식당 검색에 반영하고 있어요.'}</p>}
           <NaverRestaurantMap restaurants={restaurantOptions} selectedRestaurant={selectedRestaurant} userLocation={userLocation} />
@@ -2934,6 +2954,7 @@ function RoomDetail({ room, currentUser, friends, onBack, onShare, onKakaoShare,
             <div><span>매장</span><strong>{selectedRestaurant?.name}</strong></div>
             <div><span>이동</span><strong>{selectedRestaurant?.walk}</strong></div>
           </div>
+          <button type="button" className="menu-share-button" onClick={() => onKakaoShare?.({ menu: selectedMenu, restaurant: selectedRestaurant?.name })}><MessageCircleMore size={16} /> 메뉴와 매장을 카카오톡으로 공유</button>
           <div className="finish-route-map">
             <div><Navigation size={15} /><span>현재 위치에서 매장까지</span><small>{selectedRestaurant?.distance || selectedRestaurant?.walk}</small></div>
             <NaverRestaurantMap restaurants={selectedRestaurant ? [selectedRestaurant] : []} selectedRestaurant={selectedRestaurant} userLocation={userLocation} showRoute />
@@ -2959,7 +2980,7 @@ function RoomDetail({ room, currentUser, friends, onBack, onShare, onKakaoShare,
           <span>{pullBack.armed ? '이전으로 갈까요?' : '조금 더 위로 당겨주세요'}</span>
         </div>
       )}
-      {isOwner && !(mode === 'competition' && stage >= 2) && <button type="button" className="room-undo-button" onClick={undoStage} aria-label="이전 단계로 돌아가기"><RotateCcw size={17} /> 실행 취소</button>}
+      {isOwner && <button type="button" className="room-undo-button" onClick={undoStage} aria-label="이전 단계로 돌아가기"><RotateCcw size={17} /> 실행 취소</button>}
         {roomSettingsOpen && <RoomSettingsModal room={room} currentUser={currentUser} onClose={() => setRoomSettingsOpen(false)} onLeave={onLeave} onDelete={onDelete} onTransfer={onTransfer} onKick={onKickMember} onChangeMode={changeRoomMode} onChangeBudget={changeRoomBudget} onChangeLocation={(locationMode, locationText) => onFlowChange({ locationMode, locationText })} />}
     </main>
   )
@@ -3046,6 +3067,42 @@ function TasteRow({ icon, label, values, warning }) {
 }
 
 function SettingsScreen({ settings, onBack, onChange, onAction, onLogout }) {
+  const [canInstall, setCanInstall] = useState(Boolean(pendingInstallPrompt))
+  const [isInstalled, setIsInstalled] = useState(() => window.matchMedia('(display-mode: standalone)').matches || navigator.standalone === true)
+  const isIos = /iPad|iPhone|iPod/.test(navigator.userAgent)
+  const isMobile = /Android|iPad|iPhone|iPod/.test(navigator.userAgent)
+
+  useEffect(() => {
+    const installReady = () => setCanInstall(true)
+    const installed = () => {
+      setCanInstall(false)
+      setIsInstalled(true)
+    }
+    window.addEventListener('modumanjok-install-ready', installReady)
+    window.addEventListener('modumanjok-installed', installed)
+    return () => {
+      window.removeEventListener('modumanjok-install-ready', installReady)
+      window.removeEventListener('modumanjok-installed', installed)
+    }
+  }, [])
+
+  const installApp = async () => {
+    if (!pendingInstallPrompt) {
+      onAction(isIos ? 'Safari 공유 메뉴에서 홈 화면에 추가를 선택해주세요' : '브라우저 메뉴에서 앱 설치를 선택해주세요')
+      return
+    }
+    try {
+      const prompt = pendingInstallPrompt
+      await prompt.prompt()
+      await prompt.userChoice
+      pendingInstallPrompt = null
+      setCanInstall(false)
+    } catch (error) {
+      console.warn('App install prompt failed:', error)
+      onAction('브라우저 메뉴에서 앱 설치를 선택해주세요')
+    }
+  }
+
   return (
     <>
       <Header
@@ -3069,6 +3126,26 @@ function SettingsScreen({ settings, onBack, onChange, onAction, onLogout }) {
             </button>
           ))}
         </div>
+      </section>
+
+      <section className="settings-section">
+        <div className="settings-section-title"><span>INSTALL</span><h2>앱으로 사용하기</h2></div>
+        <div className="settings-list action-list">
+          <button type="button" onClick={installApp} disabled={isInstalled}>
+            <span className="setting-leading"><Download size={18} /></span>
+            <span>{isInstalled ? '이 기기에 설치됨' : '모두만족 설치하기'}</span>
+            {!isInstalled && <ChevronRight size={18} />}
+          </button>
+        </div>
+        <p className="settings-install-note">{isInstalled
+          ? '홈 화면이나 앱 목록에서 모두만족을 실행할 수 있어요.'
+          : canInstall
+            ? '설치하면 브라우저 주소창 없이 앱처럼 열려요.'
+            : isIos
+              ? 'Safari에서 공유 → 홈 화면에 추가를 선택해주세요.'
+              : isMobile
+                ? 'Chrome 메뉴에서 홈 화면에 추가 또는 앱 설치를 선택해주세요.'
+                : '주소창의 설치 아이콘이나 브라우저 메뉴에서 앱 설치를 선택해주세요.'}</p>
       </section>
 
       <section className="settings-section">
@@ -3466,3 +3543,9 @@ function Toast({ children }) {
 createRoot(document.getElementById('root')).render(
   <React.StrictMode><App /></React.StrictMode>,
 )
+
+if (import.meta.env.PROD && 'serviceWorker' in navigator) {
+  window.addEventListener('load', () => {
+    navigator.serviceWorker.register('/sw.js').catch((error) => console.warn('Service worker registration failed:', error))
+  })
+}

@@ -521,7 +521,7 @@ button:focus-visible, input:focus-visible { outline: 3px solid rgba(22, 35, 30, 
 .member-manage-list button { min-height: 29px; padding: 0 9px; border: 1px solid #d78d77; border-radius: 9px; background: transparent; color: #bd4c32; font-size: 9px; font-weight: 800; cursor: pointer; }
 .kakao-share-button, .menu-share-button { display: flex; align-items: center; justify-content: center; gap: 6px; width: 100%; min-height: 42px; border: 1px solid #e2b23d; border-radius: 13px; background: #fee500; color: #191600; font-size: 10px; font-weight: 850; cursor: pointer; }
 .kakao-share-button { margin-top: 10px; }
-.menu-share-button { margin: -3px 0 13px; }
+.finish-section .menu-share-button { margin: -8px 0 18px; }
 .room-danger-actions { display: grid; gap: 8px; margin-top: 19px; padding-top: 17px; border-top: 1px solid var(--line); }
 .room-danger-actions button { min-height: 47px; display: flex; align-items: center; justify-content: center; gap: 7px; border: 0; border-radius: 14px; background: #242423; color: #fff; font-size: 11px; font-weight: 800; cursor: pointer; }
 .room-danger-actions .delete-room-button { background: #a33b36; }
@@ -641,6 +641,8 @@ button:focus-visible, input:focus-visible { outline: 3px solid rgba(22, 35, 30, 
 .action-list > button { width: 100%; cursor: pointer; }
 .action-list > button > span:nth-child(2), .settings-info-row > span:nth-child(2) { font-size: 12px; font-weight: 750; }
 .settings-info-row small { color: var(--muted); font-size: 10px; }
+.settings-install-note { margin: 9px 3px 0; color: var(--muted); font-size: 10px; line-height: 1.5; }
+.action-list > button:disabled { cursor: default; opacity: .68; }
 .danger-row, .danger-row .setting-leading { color: #a53535; }
 .settings-last-section { padding-bottom: 8px; }
 
