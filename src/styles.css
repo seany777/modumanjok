@@ -858,6 +858,158 @@ button:focus-visible, input:focus-visible { outline: 3px solid rgba(22, 35, 30, 
   .app-frame { box-shadow: none; }
 }
 
+/* Product hierarchy: core actions first, promotion last. */
+:root { --muted: #6f6259; }
+:root[data-theme="dark"] { --muted: #d0beb2; }
+.home-page > .top-header { order: 0; }
+.home-page > .home-service-summary { order: 1; }
+.home-page > .home-action-section { order: 2; }
+.home-page > .section-block:not(.compact):not(.home-promotion-section) { order: 3; }
+.home-page > .home-promotion-section { order: 4; }
+
+.home-service-summary {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  margin: -3px 0 4px;
+  padding: 13px 14px;
+  border: 1px solid var(--line);
+  border-radius: 16px;
+  background: var(--accent-faint);
+  color: var(--ink);
+}
+.home-service-summary svg { flex: 0 0 auto; margin-top: 1px; color: var(--accent-strong); }
+.home-service-summary p { margin: 0; line-height: 1.55; font-weight: 650; }
+.home-action-section { margin-top: 20px; }
+.home-quick-grid { grid-template-columns: 1fr; gap: 9px; }
+.home-quick-grid > button {
+  min-height: 70px;
+  display: grid;
+  grid-template-columns: 44px minmax(0, 1fr) 20px;
+  align-items: center;
+  gap: 11px;
+  padding: 12px 14px;
+  text-align: left;
+}
+.home-quick-grid > button > span:nth-child(2) { min-width: 0; display: flex; flex-direction: column; gap: 3px; }
+.home-quick-grid > button b { font-size: 15px; line-height: 1.25; white-space: normal; }
+.home-quick-grid > button small { color: inherit; opacity: .72; }
+.home-create-action {
+  border-color: transparent !important;
+  background: linear-gradient(135deg, var(--accent), var(--accent-strong)) !important;
+  color: #fff !important;
+}
+.home-create-action .quick-icon { background: rgba(255,255,255,.17); color: #fff; }
+.home-join-action { background: var(--card) !important; }
+.home-taste-action {
+  min-height: 46px !important;
+  grid-template-columns: 24px auto 1fr !important;
+  border-style: dashed !important;
+  color: var(--muted);
+}
+.home-taste-action > svg { color: var(--accent-strong); }
+.home-taste-action > span { color: var(--ink); font-weight: 800; }
+.home-taste-action > small { justify-self: end; }
+
+.home-promotion-section { margin-top: 28px; padding-bottom: 12px; }
+.home-promotion-section .home-ad-card { min-height: 174px; padding: 20px; }
+.home-promotion-section .home-ad-card h2 { margin-top: 9px; font-size: 20px; }
+.home-promotion-section .home-ad-card button { left: 20px; bottom: 17px; padding: 8px 11px; }
+.home-promotion-section .ad-dots { bottom: 13px; }
+
+/* Stage 1 exposes the two core decision conditions without removing them from settings. */
+.mode-ready-stage { display: flex; flex-direction: column; min-height: 540px; }
+.stage-condition-editor {
+  display: grid;
+  grid-template-columns: .95fr 1.05fr;
+  gap: 9px 10px;
+  margin-top: 10px;
+  padding: 12px;
+  border: 1px solid var(--line);
+  border-radius: 18px;
+  background: var(--card);
+}
+.stage-condition-editor > label,
+.stage-budget-editor { display: grid; gap: 7px; }
+.stage-condition-editor > label > span,
+.stage-budget-editor > span { color: var(--muted); font-size: 12px; font-weight: 800; }
+.stage-condition-editor select,
+.stage-condition-editor input {
+  width: 100%;
+  height: 39px;
+  padding: 0 9px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: var(--paper);
+  color: var(--ink);
+  font: inherit;
+  font-size: 13px;
+  font-weight: 750;
+  outline: 0;
+}
+.stage-condition-editor select:focus,
+.stage-condition-editor input:focus { border-color: var(--accent); }
+.stage-budget-editor > div { display: grid; grid-template-columns: 1fr 10px 1fr; align-items: end; gap: 4px; }
+.stage-budget-editor label { display: grid; gap: 5px; }
+.stage-budget-editor label > span { color: var(--muted); font-size: 12px; }
+.stage-budget-editor em { align-self: center; text-align: center; color: var(--muted); font-style: normal; }
+.stage-condition-editor > button {
+  grid-column: 1 / -1;
+  min-height: 36px;
+  border: 0;
+  border-radius: 12px;
+  background: var(--accent-soft);
+  color: var(--accent-strong);
+  font-weight: 850;
+  cursor: pointer;
+}
+.stage-condition-editor > button:disabled { opacity: .45; cursor: not-allowed; }
+.mode-ready-stage .stage-next { margin-top: auto; }
+.room-flow-page .room-undo-button { bottom: 86px; }
+
+/* Recommendation reasoning and decision-friendly restaurant details. */
+.recommendation-explanation {
+  display: grid;
+  gap: 8px;
+  margin: -3px 0 16px;
+  padding: 14px;
+  border: 1px solid #f0d7c8;
+  border-radius: 17px;
+  background: var(--accent-faint);
+}
+.recommendation-explanation > div:first-child { display: flex; align-items: center; gap: 7px; color: var(--accent-strong); }
+.recommendation-explanation p { margin: 0; color: var(--muted); line-height: 1.5; }
+.recommendation-reasons { display: flex; flex-wrap: wrap; gap: 6px; }
+.recommendation-reasons span {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 6px 8px;
+  border-radius: 99px;
+  background: var(--card);
+  color: var(--ink);
+  font-size: 12px;
+  font-weight: 750;
+}
+.recommendation-reasons svg { color: var(--accent-strong); }
+.restaurant-main small { margin-top: 4px; color: var(--muted); line-height: 1.45; }
+.restaurant-details .restaurant-price-guide { color: var(--accent-strong); font-weight: 800; }
+
+:root[data-theme="dark"] .home-service-summary,
+:root[data-theme="dark"] .stage-condition-editor,
+:root[data-theme="dark"] .recommendation-explanation {
+  border-color: var(--line);
+  background: #261a15;
+}
+:root[data-theme="dark"] .stage-condition-editor select,
+:root[data-theme="dark"] .stage-condition-editor input { background: #211611; border-color: var(--line); }
+:root[data-theme="dark"] .recommendation-reasons span { background: #342219; }
+
+@media (max-width: 380px) {
+  .home-quick-grid > button b { font-size: 14px; }
+  .home-quick-grid > button { grid-template-columns: 42px minmax(0, 1fr) 18px; padding-inline: 12px; }
+}
+
 @media (max-width: 760px) {
   html, body, #root { height: 100%; overflow: hidden; }
   body { background: var(--paper); }

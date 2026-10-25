@@ -40,7 +40,6 @@ import {
   Settings2,
   SquarePlus,
   Sparkles,
-  Star,
   Sun,
   Swords,
   Trash2,
@@ -2066,7 +2065,25 @@ function HomeScreen({ rooms, onOpenRoom, onGoRooms, onOpenCreate, onOpenJoin, on
   return (
     <>
       <Header eyebrow="반가워요 👋" title={<AnimatedHomeTitle>{homeTitle}</AnimatedHomeTitle>} action={<span />} />
-      <HomeAdCarousel onOpenCreate={onOpenCreate} />
+
+      <section className="home-service-summary" aria-label="서비스 소개">
+        <Sparkles size={18} />
+        <p>모임 구성원의 예산과 취향을 모아 모두가 함께 먹을 메뉴를 빠르게 정해요.</p>
+      </section>
+
+      <section className="section-block compact home-action-section">
+        <div className="section-heading">
+          <div>
+            <span className="section-kicker">START</span>
+            <h2>모임 시작하기</h2>
+          </div>
+        </div>
+        <div className="quick-grid home-quick-grid">
+          <button type="button" className="home-create-action" onClick={onOpenCreate}><span className="quick-icon coral"><Plus size={23} /></span><span><b>새 모임 만들기</b><small>방을 만들고 친구를 초대해요</small></span><ChevronRight size={20} /></button>
+          <button type="button" className="home-join-action" onClick={onOpenJoin}><span className="quick-icon"><LogIn size={22} /></span><span><b>초대 코드로 참여</b><small>6자리 코드를 입력해요</small></span><ChevronRight size={20} /></button>
+          <button type="button" className="home-taste-action" onClick={onOpenTaste}><Coffee size={17} /><span>취향 설정</span><small>내 조건 관리</small></button>
+        </div>
+      </section>
 
       <section className="section-block">
         <div className="section-heading">
@@ -2093,18 +2110,14 @@ function HomeScreen({ rooms, onOpenRoom, onGoRooms, onOpenCreate, onOpenJoin, on
         )}
       </section>
 
-      <section className="section-block compact">
+      <section className="section-block home-promotion-section">
         <div className="section-heading">
           <div>
-            <span className="section-kicker">QUICK MENU</span>
-            <h2>빠른 메뉴</h2>
+            <span className="section-kicker">DISCOVER</span>
+            <h2>이런 메뉴도 살펴보세요</h2>
           </div>
         </div>
-        <div className="quick-grid">
-          <button type="button" onClick={onOpenJoin}><span className="quick-icon"><LogIn size={22} /></span><b>코드로 방 접속</b><small>초대 코드 입력</small></button>
-          <button type="button" onClick={onOpenCreate}><span className="quick-icon coral"><Plus size={22} /></span><b>방 생성하기</b><small>새 모임 만들기</small></button>
-          <button type="button" onClick={onOpenTaste}><span className="quick-icon sky"><Coffee size={22} /></span><b>취향 설정</b><small>내 조건 관리</small></button>
-        </div>
+        <HomeAdCarousel onOpenCreate={onOpenCreate} />
       </section>
     </>
   )
@@ -2295,6 +2308,8 @@ function RoomDetail({ room, currentUser, friends, onBack, onShare, onKakaoShare,
   const [expandedRestaurant, setExpandedRestaurant] = useState(null)
   const [confirmDelete, setConfirmDelete] = useState(false)
   const [roomSettingsOpen, setRoomSettingsOpen] = useState(false)
+  const [lobbyBudgetMin, setLobbyBudgetMin] = useState(Number(room.flow?.budgetMin ?? 8000))
+  const [lobbyBudgetMax, setLobbyBudgetMax] = useState(Number(room.flow?.budgetMax ?? 20000))
   const [pullBack, setPullBack] = useState({ distance: 0, armed: false })
   const pullStartY = useRef(null)
   const pullEligible = useRef(false)
@@ -2356,6 +2371,11 @@ function RoomDetail({ room, currentUser, friends, onBack, onShare, onKakaoShare,
       setRouletteState('idle')
     }
   }, [room.flow?.stage, room.flow?.mode, room.flow?.selectedMenu, room.flow?.rouletteResult, room.flow?.rouletteSpinning, room.flow?.updatedAt])
+
+  useEffect(() => {
+    setLobbyBudgetMin(Number(room.flow?.budgetMin ?? 8000))
+    setLobbyBudgetMax(Number(room.flow?.budgetMax ?? 20000))
+  }, [room.flow?.budgetMin, room.flow?.budgetMax])
 
   useEffect(() => {
     const nextStage = Number(room.flow?.stage || 0)
@@ -2775,7 +2795,7 @@ function RoomDetail({ room, currentUser, friends, onBack, onShare, onKakaoShare,
       <div key={stage} className={`room-stage-motion ${transitionDirection}`}>
 
       {stage === 1 && (
-        <section className="room-stage-section">
+        <section className="room-stage-section mode-ready-stage">
           <div className="room-stage-copy"><span>MODE READY</span><h2>선택된 모드로 시작할까요?</h2><p>메뉴 결정 모드는 방장이 방 설정에서 변경할 수 있어요.</p></div>
           <div className="configured-mode-card">
             <span className="mode-icon"><Settings2 size={25} /></span>
@@ -2783,6 +2803,28 @@ function RoomDetail({ room, currentUser, friends, onBack, onShare, onKakaoShare,
             <CheckCircle2 size={21} />
           </div>
           {isOwner && <button type="button" className="change-mode-button" onClick={() => setRoomSettingsOpen(true)}><Settings size={16} /> 방 설정에서 모드 변경</button>}
+          {isOwner && (
+            <div className="stage-condition-editor" aria-label="메뉴 결정 조건 바로 수정">
+              <label>
+                <span>결정 방식</span>
+                <select value={mode} onChange={(event) => changeRoomMode(event.target.value)}>
+                  <option value="ai">맞춤 메뉴 추천</option>
+                  <option value="tournament">메뉴 이상형 월드컵</option>
+                  <option value="roulette">메뉴 룰렛</option>
+                  <option value="competition">Hot Potato 먹기 도전</option>
+                </select>
+              </label>
+              <div className="stage-budget-editor">
+                <span>1인당 예산</span>
+                <div>
+                  <label><span>최소</span><input type="number" min="0" step="1000" value={lobbyBudgetMin} onChange={(event) => setLobbyBudgetMin(Number(event.target.value))} /></label>
+                  <em>~</em>
+                  <label><span>최대</span><input type="number" min="0" step="1000" value={lobbyBudgetMax} onChange={(event) => setLobbyBudgetMax(Number(event.target.value))} /></label>
+                </div>
+              </div>
+              <button type="button" disabled={lobbyBudgetMin < 0 || lobbyBudgetMax < lobbyBudgetMin} onClick={() => changeRoomBudget(lobbyBudgetMin, lobbyBudgetMax)}>예산 저장</button>
+            </div>
+          )}
           <button type="button" className="room-primary-button stage-next" disabled={!isOwner} onClick={startConfiguredMode}>{isOwner ? (mode === 'ai' ? '맞춤 추천 1위로 바로 매장 찾기' : `${roomModeLabels[mode]} 시작하기`) : '방장이 시작하기를 기다리는 중'} <ChevronRight size={18} /></button>
         </section>
       )}
@@ -2940,6 +2982,15 @@ function RoomDetail({ room, currentUser, friends, onBack, onShare, onKakaoShare,
       {stage === 3 && (
         <section className="room-stage-section">
           <div className="selected-menu-banner"><span><CheckCircle2 size={22} /></span><div><small>선택한 메뉴</small><strong>{selectedMenu}</strong></div></div>
+          {mode === 'ai' && selectedCandidate && (
+            <div className="recommendation-explanation">
+              <div><Sparkles size={17} /><strong>이 메뉴를 추천한 이유</strong></div>
+              <p>{selectedCandidate.reason}</p>
+              <div className="recommendation-reasons">
+                {(selectedCandidate.fitReasons || []).map((reason) => <span key={reason}><CheckCircle2 size={13} /> {reason}</span>)}
+              </div>
+            </div>
+          )}
           <div className="location-line"><Navigation size={16} /><span>{locationMode === 'manual' ? '입력한 위치 기준 거리' : userLocation ? '내 현재 위치 기준 거리' : '현재 위치 확인 전'}</span><small>{locationMode === 'manual' ? locationText : userLocation ? `${userLocation.lat.toFixed(3)}, ${userLocation.lng.toFixed(3)}` : '위치 권한 필요'}</small></div>
           {(userLocation || locationMode === 'manual') && <p className={`data-range-note ${restaurantSource}`}><Info size={13} /> {currentArea && <strong>{currentArea}</strong>} {restaurantMessage || '현재 위치를 식당 검색에 반영하고 있어요.'}</p>}
           <NaverRestaurantMap restaurants={restaurantOptions} selectedRestaurant={selectedRestaurant} userLocation={userLocation} />
@@ -2957,18 +3008,28 @@ function RoomDetail({ room, currentUser, friends, onBack, onShare, onKakaoShare,
               const meters = distanceInMeters(userLocation, restaurant)
               const distance = restaurant.distance || formatDistance(meters)
               const walk = restaurant.walk || (Number.isFinite(meters) ? `도보 약 ${Math.max(1, Math.round(meters / 80))}분` : '도보 시간 계산 전')
+              const distanceLabel = distance === '거리 계산 전' ? '지도에서 위치 확인' : distance
+              const walkLabel = walk === '도보 시간 계산 전' ? null : walk
+              const restaurantMeta = [
+                restaurant.rating ? `★ ${restaurant.rating.toFixed(1)}` : null,
+                restaurant.category || '음식점',
+                distanceLabel,
+                walkLabel,
+              ].filter(Boolean).join(' · ')
               return (
                 <article key={restaurant.id} className={`restaurant-card ${isSelected ? 'selected' : ''}`}>
-                  <button type="button" className="restaurant-main" onClick={() => { setExpandedRestaurant(isOpen ? null : restaurant.id); setSelectedRestaurant({ ...restaurant, distance, walk }) }}>
+                  <button type="button" className="restaurant-main" onClick={() => { setExpandedRestaurant(isOpen ? null : restaurant.id); setSelectedRestaurant({ ...restaurant, distance: distanceLabel, walk: walkLabel || '네이버 지도에서 확인' }) }}>
                     <span className="restaurant-order">{index + 1}</span>
-                    <span><b>{restaurant.name}</b><small><Star size={12} fill={restaurant.rating ? 'currentColor' : 'none'} /> {restaurant.rating ? restaurant.rating.toFixed(1) : '별점 없음'} · {distance} · {walk}</small></span>
+                    <span><b>{restaurant.name}</b><small>{restaurantMeta}</small></span>
                     <ChevronDown size={18} className={isOpen ? 'rotated' : ''} />
                   </button>
                   {isOpen && (
                     <div className="restaurant-details">
                       <p><MapPin size={15} /> {restaurant.address}</p>
+                      {selectedCandidate?.priceMin > 0 && <p className="restaurant-price-guide">선택 메뉴 예상 가격 · 1인 약 {selectedCandidate.priceMin.toLocaleString('ko-KR')}~{selectedCandidate.priceMax.toLocaleString('ko-KR')}원</p>}
+                      {restaurant.category && <p>업종 · {restaurant.category}</p>}
                       {restaurant.phone && <p>전화 {restaurant.phone}</p>}
-                      <p>{restaurantSource === 'naver' ? '네이버 지역 검색 결과이며 평점은 제공되지 않아요.' : '현재 위치 주변 식당을 불러오는 중이에요.'}</p>
+                      <p>실제 메뉴와 가격은 네이버 지도 또는 매장에 확인해주세요.</p>
                       <a href={`https://map.naver.com/p/search/${encodeURIComponent(restaurant.name)}`} target="_blank" rel="noreferrer">네이버 지도에서 자세히 보기 <ExternalLink size={14} /></a>
                     </div>
                   )}
@@ -2976,9 +3037,9 @@ function RoomDetail({ room, currentUser, friends, onBack, onShare, onKakaoShare,
               )
             })}
             {!restaurantOptions.length && restaurantSource === 'loading' && <div className="restaurant-empty"><span className="mini-spinner" /> 주변 식당을 불러오는 중이에요.</div>}
-            {!restaurantOptions.length && restaurantSource === 'error' && <div className="restaurant-empty error"><AlertTriangle size={18} /><span>{restaurantMessage}<small>네이버 Maps의 Reverse Geocoding과 NAVER API HUB 지역 검색 설정을 확인해주세요.</small></span></div>}
+            {!restaurantOptions.length && restaurantSource === 'error' && <div className="restaurant-empty error"><AlertTriangle size={18} /><span>{restaurantMessage}<small>위치를 다시 입력하거나 잠시 후 다시 시도해주세요.</small></span></div>}
           </div>
-          <p className="prototype-note"><Info size={14} /> 네이버 지역 검색 API는 별점을 제공하지 않아 별점 없음으로 표시합니다.</p>
+          <p className="prototype-note"><Info size={14} /> 매장 선택 전 주소와 네이버 지도 정보를 확인해주세요.</p>
           <button type="button" className="room-primary-button stage-next" disabled={!isOwner || !selectedRestaurant} onClick={() => moveToStage(4, { selectedRestaurant, completedAt: Date.now() })}>{!isOwner ? '방장이 매장을 결정하고 있어요' : selectedRestaurant ? `${selectedRestaurant.name}으로 결정` : '매장을 선택해주세요'} <ChevronRight size={18} /></button>
         </section>
       )}
