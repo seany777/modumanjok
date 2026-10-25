@@ -1965,6 +1965,21 @@ button:focus-visible, input:focus-visible, textarea:focus-visible {
 .verified-rating { color: var(--accent-strong); font-size: 16px; font-weight: 800; }
 .verified-rating small { color: var(--muted); font-weight: 500; }
 .lobby-condition-editor { margin-top: 14px; }
+.app-frame .member-presence { display: inline-flex; align-items: center; gap: 5px; color: var(--muted); font-size: 12px; font-weight: 500; line-height: 1.5; white-space: nowrap; }
+.member-presence i { width: 6px; height: 6px; border-radius: 50%; flex-shrink: 0; background: #9a928b; }
+.app-frame .member-presence.online { color: #24764a; }
+.member-presence.online i { background: #29955e; }
+:root[data-theme="dark"] .app-frame .member-presence.online { color: #82dba6; }
+:root[data-theme="dark"] .member-presence.online i { background: #82dba6; }
+.desktop-room-summary li strong { display: flex; flex-direction: column; gap: 2px; }
+.room-flow-page { --lobby-line: #c8a58e; }
+:root[data-theme="dark"] .room-flow-page { --lobby-line: #805b45; }
+.app-frame .room-flow-page :is(.room-lobby-hero, .lobby-condition-editor, .lobby-ready-card, .lobby-invite-actions .share-wide) { border: 1px solid var(--lobby-line); }
+.lobby-member-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); max-height: 240px; overflow-y: auto; overscroll-behavior: contain; scrollbar-width: none; align-content: start; --fade-top: 0px; --fade-bottom: 0px; mask-image: linear-gradient(to bottom, transparent, #000 var(--fade-top), #000 calc(100% - var(--fade-bottom)), transparent); }
+.lobby-member-grid::-webkit-scrollbar { display: none; }
+.lobby-member-grid[data-more-above="true"] { --fade-top: 12px; }
+.lobby-member-grid[data-more-below="true"] { --fade-bottom: 22px; }
+.app-frame .room-flow-page .lobby-member-grid > div { border: 1px solid var(--lobby-line); background: var(--card); }
 .try-another-mode { margin: 8px 0 0; }
 .desktop-nav-brand, .desktop-room-summary { display: none; }
 
@@ -2057,12 +2072,21 @@ button:focus-visible, input:focus-visible, textarea:focus-visible {
   .room-lobby-hero { padding: 16px; }
   .room-lobby-hero h2 { margin: 8px 0 5px; font-size: 22px; }
   .lobby-title-break { display: none; }
-  .lobby-member-grid { grid-template-columns: repeat(auto-fit, minmax(130px, 1fr)); gap: 8px; margin-top: 12px; }
+  .lobby-member-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; margin-top: 12px; }
   .lobby-member-grid > div { display: grid; grid-template-columns: 28px minmax(0, 1fr); gap: 4px 8px; padding: 10px; text-align: left; }
   .lobby-member-grid > div > span { width: 28px; height: 28px; grid-row: 1 / 3; }
   .lobby-member-grid strong, .lobby-member-grid small { grid-column: 2; }
   .room-lobby-hero > p, .lobby-member-grid small { color: var(--muted); }
   .lobby-ready-card { padding: 14px; }
+  .room-stage-viewport > .room-lobby-content { display: flex; flex-direction: column; gap: 10px; }
+  .room-lobby-content > :not(.room-lobby-hero) { flex-shrink: 0; margin-top: 0; margin-bottom: 0; }
+  .room-lobby-content > .room-lobby-hero { display: flex; flex-direction: column; flex: 1; min-height: 200px; overflow: hidden; }
+  .room-lobby-hero > .status-badge { align-self: flex-start; }
+  .room-lobby-content .lobby-member-grid { flex: 1; min-height: 0; max-height: none; }
+  .room-lobby-content .lobby-condition-editor { padding: 10px; gap: 7px 10px; }
+  .room-lobby-content .lobby-ready-card { padding: 12px; }
+  .room-lobby-content .lobby-ready-card > div { margin-bottom: 8px; }
+  .room-lobby-content .lobby-invite-actions .share-wide { margin-top: 0; }
   .tournament-pair { gap: 20px; }
   .tournament-food-image { aspect-ratio: 1.25; }
   .room-flow-page .room-undo-button { position: static; grid-column: 2; grid-row: 3; justify-self: end; margin-top: 0; }

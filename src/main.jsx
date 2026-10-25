@@ -2,7 +2,7 @@ import React, { useEffect, useRef, useState } from 'react'
 import { createRoot } from 'react-dom/client'
 import QRCode from 'qrcode'
 import { getRedirectResult, onAuthStateChanged, signInAnonymously, signInWithPopup, signOut } from 'firebase/auth'
-import { equalTo, get, onValue, orderByChild, query, ref, runTransaction, serverTimestamp, set, update } from 'firebase/database'
+import { equalTo, get, onDisconnect, onValue, orderByChild, push, query, ref, remove, runTransaction, serverTimestamp, set, update } from 'firebase/database'
 import {
   ArrowLeft,
   AlertTriangle,
@@ -854,6 +854,12 @@ const shareRoomInvite = async (room, onToast, context = '') => {
   onToast?.('초대 링크를 복사했어요. 카카오톡에 붙여넣어주세요')
 }
 
+const isRoomMemberOnline = (presence, uid) => Object.values(presence?.[uid] || {}).some((connection) => connection === true)
+const areAllRoomMembersOnline = (members, presence) => {
+  const ids = Object.keys(members || {})
+  return ids.length > 0 && ids.every((uid) => isRoomMemberOnline(presence, uid))
+}
+
 const normalizeRoom = (id, room) => {
   const memberRecords = room?.members || {}
   return {
@@ -1671,6 +1677,16 @@ function App() {
   const updateRoomFlow = async (room, patch) => {
     if (!authUser || room.ownerId !== authUser.uid) return false
     try {
+      if ([2, 3].includes(patch.stage) && Number(room.flow?.stage || 0) <= 1) {
+        const [roster, presence] = await Promise.all([
+          get(ref(database, `rooms/${room.id}/members`)),
+          get(ref(database, `roomPresence/${room.id}`)),
+        ])
+        if (!areAllRoomMembersOnline(roster.val(), presence.val())) {
+          setToast('모든 참여자가 방에 접속해야 시작할 수 있어요')
+          return false
+        }
+      }
       const now = Date.now()
       const changes = Object.fromEntries(Object.entries({ ...patch, updatedAt: now }).map(([key, value]) => [`rooms/${room.id}/flow/${key}`, value]))
       changes[`rooms/${room.id}/lastActivityAt`] = now
@@ -2361,7 +2377,7 @@ function useRoomScrollEdges(pageRef, stage) {
     const page = pageRef.current
     if (!page) return undefined
     let frame
-    const panes = [...page.querySelectorAll('.room-stage-motion, .desktop-room-summary ul, .restaurant-list')]
+    const panes = [...page.querySelectorAll('.room-stage-motion, .desktop-room-summary ul, .restaurant-list, .lobby-member-grid')]
     const refresh = () => {
       cancelAnimationFrame(frame)
       frame = requestAnimationFrame(() => panes.forEach((pane) => {
@@ -2389,7 +2405,54 @@ function useRoomScrollEdges(pageRef, stage) {
   }, [pageRef, stage])
 }
 
-function DesktopRoomSummary({ room, onShare, onSettings }) {
+function useRoomPresence(roomId, uid) {
+  const [state, setState] = useState({ roomId, connections: {}, connected: false, ready: false, error: false })
+  useEffect(() => {
+    let active = true
+    let generation = 0
+    const sessions = []
+    setState({ roomId, connections: {}, connected: false, ready: false, error: false })
+    const stopPresence = onValue(ref(database, `roomPresence/${roomId}`), (snapshot) => {
+      if (active) setState((current) => ({ ...current, connections: snapshot.val() || {}, ready: true }))
+    }, () => {
+      if (active) setState((current) => ({ ...current, connections: {}, ready: true, error: true }))
+    })
+    const stopConnection = onValue(ref(database, '.info/connected'), (snapshot) => {
+      if (!active) return
+      const currentGeneration = ++generation
+      if (!snapshot.val()) {
+        if (active) setState((current) => ({ ...current, connected: false }))
+        return
+      }
+      // Separate entries per tab: closing one tab must not hide another tab.
+      const session = push(ref(database, `roomPresence/${roomId}/${uid}`))
+      sessions.push(session)
+      // Register server-side cleanup before advertising this tab as online.
+      onDisconnect(session).remove().then(async () => {
+        if (!active || currentGeneration !== generation) return remove(session)
+        await set(session, true)
+        if (!active || currentGeneration !== generation) return remove(session)
+        setState((current) => ({ ...current, connected: true, error: false }))
+      }).catch(() => {
+        if (active && currentGeneration === generation) setState((current) => ({ ...current, connected: false, error: true }))
+      })
+    })
+    return () => {
+      active = false
+      generation += 1
+      stopPresence()
+      stopConnection()
+      sessions.forEach((session) => { remove(session).catch(() => {}) })
+    }
+  }, [roomId, uid])
+  return state.roomId === roomId ? state : { connections: {}, connected: false, ready: false, error: false }
+}
+
+function MemberPresence({ online, owner = false }) {
+  return <small className={`member-presence ${online ? 'online' : 'offline'}`}><i aria-hidden="true" />{online ? '온라인' : '오프라인'}{owner && <span> · 방장</span>}</small>
+}
+
+function DesktopRoomSummary({ room, onlineIds, onShare, onSettings }) {
   return (
     <aside className="desktop-room-summary" aria-label="모임 정보">
       <span className="section-kicker">OUR TABLE</span>
@@ -2401,7 +2464,7 @@ function DesktopRoomSummary({ room, onShare, onSettings }) {
       </dl>
       <h3>함께하는 사람들 <span>{room.members.length}</span></h3>
       <ul>{Object.entries(room.memberRecords || {}).map(([uid, member]) => (
-        <li key={uid}><span className="desktop-member-avatar">{member.name?.slice(0, 1) || '?'}</span><strong>{member.name || '참여자'}</strong>{uid === room.ownerId && <Crown size={15} aria-label="방장" />}</li>
+        <li key={uid}><span className="desktop-member-avatar">{member.name?.slice(0, 1) || '?'}</span><strong>{member.name || '참여자'}<MemberPresence online={onlineIds.has(uid)} /></strong>{uid === room.ownerId && <Crown size={15} aria-label="방장" />}</li>
       ))}</ul>
       <button type="button" className="share-wide secondary-share" onClick={onShare}><QrCode size={17} /> 초대 코드 보기</button>
       <button type="button" className="change-mode-button" onClick={onSettings}><Settings size={16} /> 방 설정</button>
@@ -2411,6 +2474,7 @@ function DesktopRoomSummary({ room, onShare, onSettings }) {
 
 function RoomDetail({ room, currentUser, friends, onBack, onShare, onKakaoShare, onDelete, onLeave, onTransfer, onKickMember, onOpenFriends, onFlowChange, onTournamentSubmit, onHotPotatoSubmit, onHotPotatoChoose, onKeep }) {
   const pageRef = useRef(null)
+  const presence = useRoomPresence(room.id, currentUser.uid)
   const menuConfirmationRef = useRef({ roomId: room.id, stage: Number(room.flow?.stage || 0) })
   const [stage, setStage] = useState(Number(room.flow?.stage || 0))
   useRoomScrollEdges(pageRef, stage)
@@ -2461,6 +2525,9 @@ function RoomDetail({ room, currentUser, friends, onBack, onShare, onKakaoShare,
   const transitionDirection = stage >= previousStage.current ? 'forward' : 'backward'
   const isOwner = room.ownerId === currentUser.uid
   const memberEntries = Object.entries(room.memberRecords || {})
+  const onlineIds = new Set(presence.ready && presence.connected && !presence.error
+    ? memberEntries.filter(([uid]) => isRoomMemberOnline(presence.connections, uid)).map(([uid]) => uid) : [])
+  const allMembersOnline = memberEntries.length > 0 && onlineIds.size === memberEntries.length
   const preferenceSignature = JSON.stringify(memberEntries.map(([uid, member]) => [uid, member.preferences || null]))
   const roomBudgetMin = Number(room.flow?.budgetMin ?? 8000)
   const roomBudgetMax = Number(room.flow?.budgetMax ?? 20000)
@@ -2673,7 +2740,10 @@ function RoomDetail({ room, currentUser, friends, onBack, onShare, onKakaoShare,
   const moveToStage = (nextStage, extra = {}) => {
     if (!isOwner) return
     setStage(nextStage)
-    return onFlowChange({ stage: nextStage, mode, selectedMenu: selectedMenu || '', ...extra })
+    return Promise.resolve(onFlowChange({ stage: nextStage, mode, selectedMenu: selectedMenu || '', ...extra })).then((saved) => {
+      if (saved === false) setStage(stage)
+      return saved
+    })
   }
 
   const pickTournamentMenu = (menu) => {
@@ -2791,7 +2861,7 @@ function RoomDetail({ room, currentUser, friends, onBack, onShare, onKakaoShare,
   }
 
   const startConfiguredMode = async () => {
-    if (!isOwner || startInFlight.current || lobbyBudgetMin < 0 || lobbyBudgetMax <= 0 || lobbyBudgetMax < lobbyBudgetMin) return
+    if (!isOwner || !allMembersOnline || startInFlight.current || lobbyBudgetMin < 0 || lobbyBudgetMax <= 0 || lobbyBudgetMax < lobbyBudgetMin) return
     startInFlight.current = true
     setStarting(true)
     try {
@@ -2918,18 +2988,17 @@ function RoomDetail({ room, currentUser, friends, onBack, onShare, onKakaoShare,
           title={room.name}
           action={<button type="button" className="icon-button" onClick={() => setRoomSettingsOpen(true)} aria-label="방 설정"><Settings size={21} /></button>}
         />
-        <DesktopRoomSummary room={room} onShare={onShare} onSettings={() => setRoomSettingsOpen(true)} />
-        <div className="room-stage-viewport"><div className={`room-stage-motion ${transitionDirection}`}>
+        <DesktopRoomSummary room={room} onlineIds={onlineIds} onShare={onShare} onSettings={() => setRoomSettingsOpen(true)} />
+        <div className="room-stage-viewport"><div className={`room-stage-motion room-lobby-content ${transitionDirection}`}>
           <section className="room-lobby-hero">
             <span className="status-badge">시작 전</span>
             <h2>모두 모이면<br className="lobby-title-break" /> 메뉴 결정을 시작해요</h2>
-            <p>{room.subtitle}</p>
-            <div className="lobby-member-grid">
+            <div className="lobby-member-grid" tabIndex={0} role="region" aria-label="모임 참여자 목록">
               {memberEntries.map(([uid, member]) => (
                 <div key={uid}>
                   <span>{member.name?.slice(0, 1) || '?'}</span>
                   <strong>{member.name || '참여자'}</strong>
-                  {uid === room.ownerId ? <small><Crown size={11} /> 방장</small> : <small><CheckCircle2 size={11} /> 참여 완료</small>}
+                  <MemberPresence online={onlineIds.has(uid)} owner={uid === room.ownerId} />
                 </div>
               ))}
             </div>
@@ -2949,8 +3018,8 @@ function RoomDetail({ room, currentUser, friends, onBack, onShare, onKakaoShare,
             {isOwner && <button type="button" disabled={starting || lobbyBudgetMin < 0 || lobbyBudgetMax <= 0 || lobbyBudgetMax < lobbyBudgetMin} onClick={() => changeRoomBudget(lobbyBudgetMin, lobbyBudgetMax)}>예산 저장</button>}
           </div>
           <section className="lobby-ready-card">
-            <div><UsersRound size={20} /><span><strong>{room.members.length}명 모두 참여했어요</strong><small>{isOwner ? '선택한 모드로 바로 시작해요. 변경한 예산도 함께 저장돼요.' : '방장이 선택한 모드로 시작하기를 기다려주세요.'}</small></span></div>
-            <button type="button" className="room-primary-button" disabled={!isOwner || starting || lobbyBudgetMin < 0 || lobbyBudgetMax <= 0 || lobbyBudgetMax < lobbyBudgetMin} onClick={startConfiguredMode}>{starting ? <span className="mini-spinner" /> : <Play size={18} fill="currentColor" />} {starting ? '시작하는 중…' : isOwner ? '시작하기' : '방장이 시작하기를 기다리는 중'}</button>
+            <div><UsersRound size={20} /><span><strong>{presence.error ? '접속 상태를 확인하지 못했어요' : !presence.ready || !presence.connected ? '참여자 접속 확인 중…' : allMembersOnline ? `${memberEntries.length}명 모두 온라인이에요` : `${onlineIds.size}/${memberEntries.length}명 온라인`}</strong><small>{presence.error ? '연결을 확인한 뒤 다시 방에 접속해주세요.' : !allMembersOnline ? '모든 참여자가 이 방에 접속하면 시작할 수 있어요.' : isOwner ? '선택한 모드로 바로 시작해요. 변경한 예산도 함께 저장돼요.' : '방장이 선택한 모드로 시작하기를 기다려주세요.'}</small></span></div>
+            <button type="button" className="room-primary-button" disabled={!isOwner || !allMembersOnline || starting || lobbyBudgetMin < 0 || lobbyBudgetMax <= 0 || lobbyBudgetMax < lobbyBudgetMin} onClick={startConfiguredMode}>{starting ? <span className="mini-spinner" /> : <Play size={18} fill="currentColor" />} {starting ? '시작하는 중…' : !isOwner ? '방장이 시작하기를 기다리는 중' : !allMembersOnline ? '모두 접속하면 시작할 수 있어요' : '시작하기'}</button>
           </section>
           <div className="lobby-invite-actions">
             <button type="button" className="share-wide secondary-share" onClick={onShare}><QrCode size={19} /> 초대 코드 보기</button>
@@ -2979,7 +3048,7 @@ function RoomDetail({ room, currentUser, friends, onBack, onShare, onKakaoShare,
         action={<button type="button" className="icon-button" onClick={() => setRoomSettingsOpen(true)} aria-label="방 설정"><Settings size={21} /></button>}
       />
 
-      <DesktopRoomSummary room={room} onShare={onShare} onSettings={() => setRoomSettingsOpen(true)} />
+      <DesktopRoomSummary room={room} onlineIds={onlineIds} onShare={onShare} onSettings={() => setRoomSettingsOpen(true)} />
       <div className="room-stage-viewport"><div key={stage} className={`room-stage-motion ${transitionDirection}`}>
 
       {stage === 2 && mode === 'ai' && (
