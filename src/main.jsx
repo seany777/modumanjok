@@ -2277,6 +2277,39 @@ function RoomCard({ room, onOpen, onLongPress }) {
   )
 }
 
+function useRoomScrollEdges(pageRef, stage) {
+  useEffect(() => {
+    const page = pageRef.current
+    if (!page) return undefined
+    let frame
+    const panes = [...page.querySelectorAll('.room-stage-motion, .desktop-room-summary ul')]
+    const refresh = () => {
+      cancelAnimationFrame(frame)
+      frame = requestAnimationFrame(() => panes.forEach((pane) => {
+        pane.dataset.moreAbove = String(pane.scrollTop > 2)
+        pane.dataset.moreBelow = String(pane.scrollHeight - pane.clientHeight - pane.scrollTop > 2)
+      }))
+    }
+    const resize = new ResizeObserver(refresh)
+    panes.forEach((pane) => {
+      pane.addEventListener('scroll', refresh, { passive: true })
+      resize.observe(pane)
+      ;[...pane.children].forEach((child) => resize.observe(child))
+    })
+    const mutations = new MutationObserver(refresh)
+    mutations.observe(page, { childList: true, subtree: true, characterData: true })
+    page.addEventListener('load', refresh, true)
+    refresh()
+    return () => {
+      cancelAnimationFrame(frame)
+      resize.disconnect()
+      mutations.disconnect()
+      page.removeEventListener('load', refresh, true)
+      panes.forEach((pane) => pane.removeEventListener('scroll', refresh))
+    }
+  }, [pageRef, stage])
+}
+
 function DesktopRoomSummary({ room, onShare, onSettings }) {
   return (
     <aside className="desktop-room-summary" aria-label="모임 정보">
@@ -2301,6 +2334,7 @@ function RoomDetail({ room, currentUser, friends, onBack, onShare, onKakaoShare,
   const pageRef = useRef(null)
   const menuConfirmationRef = useRef({ roomId: room.id, stage: Number(room.flow?.stage || 0) })
   const [stage, setStage] = useState(Number(room.flow?.stage || 0))
+  useRoomScrollEdges(pageRef, stage)
   const [mode, setMode] = useState(room.flow?.mode || 'ai')
   const [selectedMenu, setSelectedMenu] = useState(room.flow?.selectedMenu || aiMenuCandidates[0].name)
   const [menuCandidates, setMenuCandidates] = useState(aiMenuCandidates)
@@ -2738,6 +2772,7 @@ function RoomDetail({ room, currentUser, friends, onBack, onShare, onKakaoShare,
   }
 
   const beginPullBack = (clientY) => {
+    if (window.matchMedia('(min-width: 1024px)').matches) return
     const page = pageRef.current
     if (!isOwner || !page || stage === 0) return
     const atBottom = page.scrollHeight - page.scrollTop - page.clientHeight <= 8
@@ -2774,7 +2809,7 @@ function RoomDetail({ room, currentUser, friends, onBack, onShare, onKakaoShare,
           action={<button type="button" className="icon-button" onClick={() => setRoomSettingsOpen(true)} aria-label="방 설정"><Settings size={21} /></button>}
         />
         <DesktopRoomSummary room={room} onShare={onShare} onSettings={() => setRoomSettingsOpen(true)} />
-        <div className={`room-stage-motion ${transitionDirection}`}>
+        <div className="room-stage-viewport"><div className={`room-stage-motion ${transitionDirection}`}>
           <section className="room-lobby-hero">
             <span className="status-badge">시작 전</span>
             <h2>모두 모이면<br />메뉴 결정을 시작해요</h2>
@@ -2797,6 +2832,7 @@ function RoomDetail({ room, currentUser, friends, onBack, onShare, onKakaoShare,
             <button type="button" className="share-wide secondary-share" onClick={onShare}><QrCode size={19} /> 초대 코드 보기</button>
             {isOwner && <button type="button" className="share-wide secondary-share" onClick={onOpenFriends}><UsersRound size={19} /> 친구 바로 초대</button>}
           </div>
+        </div>
         </div>
         {roomSettingsOpen && <RoomSettingsModal room={room} currentUser={currentUser} onClose={() => setRoomSettingsOpen(false)} onLeave={onLeave} onDelete={onDelete} onTransfer={onTransfer} onKick={onKickMember} onChangeMode={changeRoomMode} onChangeBudget={changeRoomBudget} />}
       </main>
@@ -2821,7 +2857,7 @@ function RoomDetail({ room, currentUser, friends, onBack, onShare, onKakaoShare,
       />
 
       <DesktopRoomSummary room={room} onShare={onShare} onSettings={() => setRoomSettingsOpen(true)} />
-      <div key={stage} className={`room-stage-motion ${transitionDirection}`}>
+      <div className="room-stage-viewport"><div key={stage} className={`room-stage-motion ${transitionDirection}`}>
 
       {stage === 1 && (
         <section className="room-stage-section mode-ready-stage">
@@ -3106,6 +3142,7 @@ function RoomDetail({ room, currentUser, friends, onBack, onShare, onKakaoShare,
       )}
       </div>
 
+      </div>
       {pullBack.distance > 4 && (
         <div className={`room-pull-indicator ${pullBack.armed ? 'armed' : ''}`} style={{ '--pull-distance': `${pullBack.distance}px` }}>
           <RotateCcw size={16} />
@@ -3624,12 +3661,36 @@ function ShareModal({ room, onClose, onToast }) {
 function ActionSheet({ type, initialCode = '', onClose, onCreate, onJoin }) {
   const [roomName, setRoomName] = useState('')
   const [code, setCode] = useState(initialCode)
+  const [busy, setBusy] = useState(false)
+  const [slow, setSlow] = useState(false)
+  const submitting = useRef(false)
   const isCreate = type === 'create'
+
+  useEffect(() => {
+    if (!busy) return undefined
+    const timer = setTimeout(() => setSlow(true), 4000)
+    return () => clearTimeout(timer)
+  }, [busy])
+
+  const submit = async () => {
+    if (submitting.current || (isCreate ? !roomName.trim() : code.trim().length !== 6)) return
+    submitting.current = true
+    setSlow(false)
+    setBusy(true)
+    try {
+      await (isCreate ? onCreate(roomName) : onJoin(code))
+    } finally {
+      submitting.current = false
+      setBusy(false)
+      setSlow(false)
+    }
+  }
+
   return (
-    <div className="overlay sheet-overlay" role="presentation" onMouseDown={(event) => event.target === event.currentTarget && onClose()}>
-      <section className="action-sheet" role="dialog" aria-modal="true" aria-labelledby="sheet-title">
+    <div className="overlay sheet-overlay" role="presentation" onMouseDown={(event) => !busy && event.target === event.currentTarget && onClose()}>
+      <section className="action-sheet" role="dialog" aria-modal="true" aria-labelledby="sheet-title" aria-busy={busy}>
         <div className="sheet-handle" />
-        <button type="button" className="modal-close" onClick={onClose} aria-label="닫기"><X size={21} /></button>
+        <button type="button" className="modal-close" onClick={onClose} disabled={busy} aria-label="닫기"><X size={21} /></button>
         <span className="modal-icon">{isCreate ? <Plus size={25} /> : <LogIn size={25} />}</span>
         <h2 id="sheet-title">{isCreate ? '새 방 만들기' : '방에 접속하기'}</h2>
         <p>{isCreate ? '모임 이름을 정하고 친구들을 초대해보세요.' : '공유받은 초대 코드를 입력해주세요.'}</p>
@@ -3637,7 +3698,9 @@ function ActionSheet({ type, initialCode = '', onClose, onCreate, onJoin }) {
           {isCreate ? '방 이름' : '초대 코드'}
           <input
             autoFocus
+            disabled={busy}
             value={isCreate ? roomName : code}
+            onKeyDown={(event) => { if (event.key === 'Enter' && !event.nativeEvent.isComposing) { event.preventDefault(); submit() } }}
             maxLength={isCreate ? undefined : 6}
             onChange={(event) => isCreate
               ? setRoomName(event.target.value)
@@ -3646,10 +3709,12 @@ function ActionSheet({ type, initialCode = '', onClose, onCreate, onJoin }) {
           />
         </label>
         {(isCreate || code.trim().length === 6) && (
-          <button type="button" className="sheet-submit" disabled={isCreate ? !roomName.trim() : false} onClick={() => isCreate ? onCreate(roomName) : onJoin(code)}>
-            {isCreate ? '방 만들기' : '접속하기'}
+          <button type="button" className="sheet-submit room-submit-button" disabled={busy || (isCreate ? !roomName.trim() : false)} onClick={submit}>
+            {busy && <span className="mini-spinner" aria-hidden="true" />}
+            {busy ? (isCreate ? '방 만드는 중…' : '방 접속 중…') : (isCreate ? '방 만들기' : '접속하기')}
           </button>
         )}
+        <div className="room-submit-status" role="status" aria-live="polite">{busy && (slow ? '연결이 조금 늦어지고 있어요. 잠시만 기다려주세요.' : isCreate ? '새 모임을 준비하고 있어요.' : '모임에 연결하고 있어요.')}</div>
       </section>
     </div>
   )
@@ -3676,7 +3741,7 @@ function CommunityScreen({ fallbackSelection }) {
     <>
       <Header eyebrow="COMMUNITY · BETA" title="커뮤니티" />
       <section className="community-beta" aria-label="최근 선택된 메뉴">
-        <div className="community-beta-heading"><h2>최근 선택된 메뉴</h2><span><i aria-hidden="true" /> 실시간</span></div>
+        <div className="community-beta-heading"><h2>최근 선택된 메뉴</h2><span><i aria-hidden="true" /> {status === 'error' && !fallbackSelection ? '연결 확인 필요' : status === 'loading' && !fallbackSelection ? '연결 중' : '실시간'}</span></div>
         <p className="community-intro">다른 모임은 어떤 메뉴를 골랐을까요?</p>
         <div className="community-latest" aria-live="polite" aria-atomic="true" aria-busy={!latest && status === 'loading'}>
           {latest ? (
