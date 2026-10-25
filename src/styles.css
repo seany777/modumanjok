@@ -1937,6 +1937,8 @@ button:focus-visible, input:focus-visible, textarea:focus-visible {
   .community-menu-card { padding: 30px; }
 }
 
+.bottom-nav .nav-label { display: inline-flex; align-items: center; gap: 4px; white-space: nowrap; }
+.bottom-nav .nav-beta { font-size: 10px; font-weight: 750; line-height: 1; letter-spacing: .02em; opacity: .7; }
 .home-page > .home-community-section { order: 4; }
 .home-community-card { width: 100%; min-height: 125px; display: flex; align-items: center; gap: 14px; padding: 18px; border: 1px solid var(--line); border-radius: 22px; background: var(--card); color: var(--ink); text-align: left; cursor: pointer; }
 .home-community-card > .quick-icon, .home-community-card > svg { flex-shrink: 0; }
@@ -1996,6 +1998,7 @@ button:focus-visible, input:focus-visible, textarea:focus-visible {
     background: var(--card);
   }
   .home-page > .home-community-section { grid-column: 2; grid-row: 3; align-self: start; margin-top: 0; }
+  .home-community-section > .section-heading { padding-inline: 22px; }
   .home-community-card { min-height: 148px; }
   .home-page .home-ad-card { min-height: 270px; padding: 26px 24px 42px; }
   .home-page .home-ad-card h2 { font-size: 27px; }

@@ -1,7 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react'
 import { createRoot } from 'react-dom/client'
 import QRCode from 'qrcode'
-import { onAuthStateChanged, signInAnonymously, signInWithPopup, signInWithRedirect, signOut } from 'firebase/auth'
+import { getRedirectResult, onAuthStateChanged, signInAnonymously, signInWithPopup, signOut } from 'firebase/auth'
 import { equalTo, get, onValue, orderByChild, query, ref, runTransaction, serverTimestamp, set, update } from 'firebase/database'
 import {
   ArrowLeft,
@@ -721,7 +721,7 @@ function NaverRestaurantMap({ restaurants, selectedRestaurant, userLocation, sho
 const navItems = [
   { id: 'home', label: '메인', icon: Home },
   { id: 'rooms', label: '방 접속', icon: LogIn },
-  { id: 'community', label: '커뮤', icon: MessageCircleMore },
+  { id: 'community', label: '커뮤니티', icon: MessageCircleMore },
   { id: 'profile', label: '내 정보', icon: CircleUserRound },
 ]
 
@@ -832,6 +832,27 @@ const normalizeRoom = (id, room) => {
   }
 }
 
+const googleLoginErrorMessage = (error) => {
+  switch (error.code) {
+    case 'auth/unauthorized-domain':
+      return 'Firebase 승인된 도메인에 현재 주소를 추가해주세요.'
+    case 'auth/operation-not-allowed':
+      return 'Firebase Authentication에서 Google 로그인을 활성화해주세요.'
+    case 'auth/popup-blocked':
+      return '로그인 창이 차단됐어요. 팝업을 허용한 뒤 다시 눌러주세요. 카카오톡 안이라면 Chrome 또는 Safari에서 열어주세요.'
+    case 'auth/popup-closed-by-user':
+    case 'auth/cancelled-popup-request':
+      return '로그인 창이 닫혔어요. Google로 계속하기를 다시 눌러주세요.'
+    case 'auth/web-storage-unsupported':
+    case 'auth/operation-not-supported-in-this-environment':
+      return '이 브라우저에서 로그인을 저장할 수 없어요. Chrome 또는 Safari에서 열어주세요.'
+    case 'auth/network-request-failed':
+      return '로그인 서버에 연결하지 못했어요. 인터넷 연결을 확인하고 다시 시도해주세요.'
+    default:
+      return `Google 로그인을 완료하지 못했어요. 다시 시도해주세요.${error.code ? ` (${error.code})` : ''}`
+  }
+}
+
 function App() {
   const [splashState, setSplashState] = useState(() => {
     try {
@@ -865,6 +886,7 @@ function App() {
   const [appSettings, setAppSettings] = useState(loadSavedSettings)
   const [userProfile, setUserProfile] = useState(defaultUserProfile)
   const memberPreferenceSync = useRef('')
+  const googleLoginInFlight = useRef(false)
 
   useEffect(() => {
     if (splashState !== 'visible') return undefined
@@ -1014,11 +1036,23 @@ function App() {
     return () => media.removeEventListener?.('change', applyTheme)
   }, [appSettings])
 
+  useEffect(() => {
+    // Surface errors from a redirect started before the popup-flow update.
+    let active = true
+    getRedirectResult(auth).catch((error) => {
+      if (active && !auth.currentUser) {
+        setAuthError(googleLoginErrorMessage(error))
+        setAuthBusy(false)
+      }
+    })
+    return () => { active = false }
+  }, [])
+
   useEffect(() => onAuthStateChanged(auth, async (user) => {
     setProfileReady(false)
     setAuthUser(user)
     setAuthBusy(false)
-    setAuthError('')
+    if (user) setAuthError('')
 
     if (!user) {
       setUserProfile(defaultUserProfile)
@@ -1202,22 +1236,19 @@ function App() {
   }, [rooms, friendSheetRoom?.id])
 
   const loginWithGoogle = async () => {
+    if (googleLoginInFlight.current) return
+    googleLoginInFlight.current = true
     setAuthBusy(true)
     setAuthError('')
     try {
-      if (window.matchMedia('(max-width: 760px)').matches) {
-        await signInWithRedirect(auth, googleProvider)
-      } else {
-        await signInWithPopup(auth, googleProvider)
-      }
+      // Start directly inside the click event, including on mobile. Cross-domain
+      // redirects lose their result when third-party storage is partitioned.
+      await signInWithPopup(auth, googleProvider)
     } catch (error) {
       console.error('Google login failed:', error)
-      const message = error.code === 'auth/unauthorized-domain'
-        ? 'Firebase 승인된 도메인에 현재 주소를 추가해주세요.'
-        : error.code === 'auth/operation-not-allowed'
-          ? 'Firebase Authentication에서 Google 로그인을 활성화해주세요.'
-          : 'Google 로그인에 실패했어요. 잠시 후 다시 시도해주세요.'
-      setAuthError(message)
+      setAuthError(googleLoginErrorMessage(error))
+    } finally {
+      googleLoginInFlight.current = false
       setAuthBusy(false)
     }
   }
@@ -3459,7 +3490,7 @@ function BottomNav({ active, onChange }) {
       {navItems.map(({ id, label, icon: Icon }) => (
         <button key={id} type="button" className={active === id ? 'active' : ''} onClick={() => onChange(id)}>
           <span className="nav-icon"><Icon size={22} strokeWidth={active === id ? 2.6 : 2} /></span>
-          <span>{label}</span>
+          <span className="nav-label">{label}{id === 'community' && <small className="nav-beta">BETA</small>}</span>
         </button>
       ))}
     </nav>
@@ -3747,7 +3778,7 @@ function HomeCommunityCard({ fallbackSelection, onOpen }) {
   const { latest, status } = useLatestCommunitySelection(fallbackSelection)
   return (
     <section className="section-block home-community-section">
-      <div className="section-heading"><div><span className="section-kicker">COMMUNITY · BETA</span><h2>최근 선택된 메뉴</h2></div><button type="button" className="text-button" onClick={onOpen}>커뮤 보기 <ChevronRight size={16} /></button></div>
+      <div className="section-heading"><div><span className="section-kicker">COMMUNITY · BETA</span><h2>최근 선택된 메뉴</h2></div><button type="button" className="text-button" onClick={onOpen}>전체보기 <ChevronRight size={16} /></button></div>
       <button type="button" className="home-community-card" onClick={onOpen}>
         <span className="quick-icon"><UtensilsCrossed size={22} /></span>
         <span className="home-community-content" aria-live="polite" aria-atomic="true">{latest ? <><strong>{latest.menu}</strong><small><MapPin size={13} />{latest.restaurant}</small></> : <><strong>{status === 'loading' ? '최근 메뉴 불러오는 중…' : status === 'error' ? '커뮤니티에서 확인해보세요' : '첫 메뉴를 기다리고 있어요'}</strong><small>다른 모임이 선택한 메뉴를 만나보세요.</small></>}</span>
