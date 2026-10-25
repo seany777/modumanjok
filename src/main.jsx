@@ -94,6 +94,8 @@ const tournamentMenuImages = {
   '냉면': 'https://images.unsplash.com/photo-1553163147-622ab57be1c7?auto=format&fit=crop&w=640&q=78',
 }
 
+const getTournamentMenuImage = (menu) => `https://loremflickr.com/640/480/${encodeURIComponent(menu)},food?lock=${seededMenuValue(`tournament-image-${menu}`)}`
+
 const menuPreferenceCatalog = [
   { name: '제육볶음', cuisine: ['한식'], form: ['밥류', '고기류'], cooking: ['볶음'], risks: ['돼지고기', '대두(콩류)', '밀'] },
   { name: '라멘', cuisine: ['일식'], form: ['면류'], cooking: ['국물'], risks: ['난류(가금류)', '밀', '대두(콩류)', '돼지고기'] },
@@ -1875,7 +1877,7 @@ function HomeScreen({ rooms, onOpenRoom, onGoRooms, onOpenCreate, onOpenJoin, on
         </div>
         <div className="quick-grid">
           <button type="button" onClick={onOpenJoin}><span className="quick-icon"><LogIn size={22} /></span><b>코드로 방 접속</b><small>초대 코드 입력</small></button>
-          <button type="button" onClick={onOpenHistory}><span className="quick-icon coral"><UtensilsCrossed size={22} /></span><b>최근 메뉴</b><small>결정 기록</small></button>
+          <button type="button" onClick={onOpenCreate}><span className="quick-icon coral"><Plus size={22} /></span><b>방 생성하기</b><small>새 모임 만들기</small></button>
           <button type="button" onClick={onOpenTaste}><span className="quick-icon sky"><Coffee size={22} /></span><b>취향 설정</b><small>내 조건 관리</small></button>
         </div>
       </section>
@@ -2063,6 +2065,8 @@ function RoomDetail({ room, currentUser, friends, onBack, onShare, onDelete, onL
   const [restaurantSource, setRestaurantSource] = useState('location')
   const [restaurantMessage, setRestaurantMessage] = useState('')
   const [currentArea, setCurrentArea] = useState('')
+  const [locationOverrideOpen, setLocationOverrideOpen] = useState(false)
+  const [locationOverrideText, setLocationOverrideText] = useState(room.flow?.locationText || '')
   const [expandedRestaurant, setExpandedRestaurant] = useState(null)
   const [confirmDelete, setConfirmDelete] = useState(false)
   const [roomSettingsOpen, setRoomSettingsOpen] = useState(false)
@@ -2188,20 +2192,40 @@ function RoomDetail({ room, currentUser, friends, onBack, onShare, onDelete, onL
     if (stage <= 2 && !room.flow?.selectedMenu && candidates[0]) setSelectedMenu(candidates[0].unavailable ? null : candidates[0].name)
   }, [preferenceSignature, roomBudgetMin, roomBudgetMax])
 
+  const locationMode = room.flow?.locationMode || 'current'
+  const locationText = room.flow?.locationText || ''
+
   useEffect(() => {
-    if (stage < 3 || !navigator.geolocation) return
+    if (stage < 3 || locationMode === 'manual' || !navigator.geolocation) return
     navigator.geolocation.getCurrentPosition(
       ({ coords }) => setUserLocation({ lat: coords.latitude, lng: coords.longitude }),
       () => setUserLocation(null),
       { enableHighAccuracy: true, timeout: 8000, maximumAge: 300000 },
     )
-  }, [stage])
+  }, [stage, locationMode])
 
   useEffect(() => {
-    if (stage !== 3 || !selectedMenu || !userLocation) return
+    if (stage !== 3 || !selectedMenu || (locationMode === 'current' && !userLocation) || (locationMode === 'manual' && !locationText.trim())) return
     let cancelled = false
     const keyId = import.meta.env.VITE_NAVER_MAP_NCP_KEY_ID
     setRestaurantSource('loading')
+    if (locationMode === 'manual') {
+      setCurrentArea(locationText.trim())
+      setRestaurantMessage(`${locationText.trim()} 주변 식당을 찾는 중이에요.`)
+      loadNaverRestaurants(selectedMenu, locationText.trim()).then(({ items }) => {
+        if (cancelled) return
+        if (!items.length) throw new Error(`${locationText.trim()} 검색 결과가 없어요.`)
+        setNaverRestaurants(items)
+        setRestaurantSource('naver')
+        setRestaurantMessage('입력한 위치를 기준으로 찾은 네이버 검색 결과예요.')
+      }).catch((error) => {
+        if (cancelled) return
+        setNaverRestaurants([])
+        setRestaurantSource('error')
+        setRestaurantMessage(error.message)
+      })
+      return () => { cancelled = true }
+    }
     setRestaurantMessage('네이버에서 현재 위치의 주소를 확인하는 중이에요.')
     reverseGeocodeArea(userLocation, keyId).then(({ query: areaQuery, label }) => {
       if (cancelled) return null
@@ -2223,7 +2247,7 @@ function RoomDetail({ room, currentUser, friends, onBack, onShare, onDelete, onL
       setRestaurantMessage(error.message)
     })
     return () => { cancelled = true }
-  }, [stage, selectedMenu, userLocation?.lat, userLocation?.lng])
+  }, [stage, selectedMenu, locationMode, locationText, userLocation?.lat, userLocation?.lng])
 
   const stageTitles = ['대기실', '메뉴 고르기 모드', mode === 'ai' ? '맞춤 메뉴 추천' : mode === 'tournament' ? '메뉴 이상형 월드컵' : mode === 'roulette' ? '메뉴 룰렛' : 'Hot Potato 먹기 도전', '주변 매장 찾기', '식사 준비 완료']
   const tournamentPair = tournamentRoundMenus.slice(tournamentMatchIndex * 2, tournamentMatchIndex * 2 + 2)
@@ -2561,7 +2585,7 @@ function RoomDetail({ room, currentUser, friends, onBack, onShare, onDelete, onL
               <div className="tournament-pair">
                 {tournamentPair.map((menu) => (
                   <button key={menu} type="button" onClick={() => pickTournamentMenu(menu)}>
-                    <span className={`tournament-food-image ${tournamentMenuImages[menu] ? '' : 'image-pending'}`} style={tournamentMenuImages[menu] ? { backgroundImage: `url(${tournamentMenuImages[menu]})` } : undefined} role="img" aria-label={`${menu} 예시 사진`}>{!tournamentMenuImages[menu] && <span>🍽️</span>}</span>
+                    <span className="tournament-food-image" style={{ backgroundImage: `url(${getTournamentMenuImage(menu)})` }} role="img" aria-label={`${menu} 인터넷 예시 사진`} />
                     <strong>{menu}</strong><small>선택하기</small>
                   </button>
                 ))}
@@ -2684,9 +2708,16 @@ function RoomDetail({ room, currentUser, friends, onBack, onShare, onDelete, onL
       {stage === 3 && (
         <section className="room-stage-section">
           <div className="selected-menu-banner"><span><CheckCircle2 size={22} /></span><div><small>선택한 메뉴</small><strong>{selectedMenu}</strong></div></div>
-          <div className="location-line"><Navigation size={16} /><span>{userLocation ? '내 현재 위치 기준 거리' : '현재 위치 확인 전'}</span><small>{userLocation ? `${userLocation.lat.toFixed(3)}, ${userLocation.lng.toFixed(3)}` : '위치 권한 필요'}</small></div>
-          {userLocation && <p className={`data-range-note ${restaurantSource}`}><Info size={13} /> {currentArea && <strong>{currentArea}</strong>} {restaurantMessage || '현재 위치를 식당 검색과 거리 계산에 반영하고 있어요.'}</p>}
+          <div className="location-line"><Navigation size={16} /><span>{locationMode === 'manual' ? '입력한 위치 기준 거리' : userLocation ? '내 현재 위치 기준 거리' : '현재 위치 확인 전'}</span><small>{locationMode === 'manual' ? locationText : userLocation ? `${userLocation.lat.toFixed(3)}, ${userLocation.lng.toFixed(3)}` : '위치 권한 필요'}</small></div>
+          {(userLocation || locationMode === 'manual') && <p className={`data-range-note ${restaurantSource}`}><Info size={13} /> {currentArea && <strong>{currentArea}</strong>} {restaurantMessage || '현재 위치를 식당 검색에 반영하고 있어요.'}</p>}
           <NaverRestaurantMap restaurants={restaurantOptions} selectedRestaurant={selectedRestaurant} userLocation={userLocation} />
+          <button type="button" className="location-override-button" onClick={() => setLocationOverrideOpen((open) => !open)}>실제 위치가 다르다면?</button>
+          {locationOverrideOpen && (
+            <div className="location-override-form">
+              <input value={locationOverrideText} onChange={(event) => setLocationOverrideText(event.target.value)} placeholder="동네, 역, 주소를 입력해주세요" aria-label="매장 검색 위치" />
+              <button type="button" disabled={!locationOverrideText.trim()} onClick={() => { onFlowChange({ locationMode: 'manual', locationText: locationOverrideText.trim() }); setLocationOverrideOpen(false) }}>이 위치로 검색</button>
+            </div>
+          )}
           <div className="restaurant-list">
             {restaurantOptions.map((restaurant, index) => {
               const isOpen = expandedRestaurant === restaurant.id
@@ -2756,7 +2787,7 @@ function RoomDetail({ room, currentUser, friends, onBack, onShare, onDelete, onL
         </div>
       )}
       {isOwner && !(mode === 'competition' && stage >= 2) && <button type="button" className="room-undo-button" onClick={undoStage} aria-label="이전 단계로 돌아가기"><RotateCcw size={17} /> 실행 취소</button>}
-      {roomSettingsOpen && <RoomSettingsModal room={room} currentUser={currentUser} onClose={() => setRoomSettingsOpen(false)} onLeave={onLeave} onDelete={onDelete} onTransfer={onTransfer} onChangeMode={changeRoomMode} onChangeBudget={changeRoomBudget} />}
+      {roomSettingsOpen && <RoomSettingsModal room={room} currentUser={currentUser} onClose={() => setRoomSettingsOpen(false)} onLeave={onLeave} onDelete={onDelete} onTransfer={onTransfer} onChangeMode={changeRoomMode} onChangeBudget={changeRoomBudget} onChangeLocation={(locationMode, locationText) => onFlowChange({ locationMode, locationText })} />}
     </main>
   )
 }
@@ -3012,13 +3043,15 @@ function BottomNav({ active, onChange }) {
   )
 }
 
-function RoomSettingsModal({ room, currentUser, onClose, onLeave, onDelete, onTransfer, onChangeMode, onChangeBudget }) {
+function RoomSettingsModal({ room, currentUser, onClose, onLeave, onDelete, onTransfer, onChangeMode, onChangeBudget, onChangeLocation }) {
   const isOwner = room.ownerId === currentUser.uid
   const otherMembers = Object.entries(room.memberRecords || {}).filter(([uid]) => uid !== currentUser.uid)
   const [nextOwnerId, setNextOwnerId] = useState(otherMembers[0]?.[0] || '')
   const [busy, setBusy] = useState(false)
   const [budgetMin, setBudgetMin] = useState(String(room.flow?.budgetMin ?? 8000))
   const [budgetMax, setBudgetMax] = useState(String(room.flow?.budgetMax ?? 20000))
+  const [locationMode, setLocationMode] = useState(room.flow?.locationMode || 'current')
+  const [locationText, setLocationText] = useState(room.flow?.locationText || '')
   const budgetIsValid = Number(budgetMin) >= 0 && Number(budgetMax) >= Number(budgetMin) && Number(budgetMax) > 0
 
   const run = async (action) => {
@@ -3076,6 +3109,21 @@ function RoomSettingsModal({ room, currentUser, onClose, onLeave, onDelete, onTr
             </div>
           </div>
         )}
+
+        {isOwner && <div className="room-location-setting">
+          <strong>매장 검색 위치</strong>
+          <p>현재 위치 또는 입력한 위치를 주변 식당 검색에 사용해요.</p>
+          <div className="location-choice-buttons">
+            <button type="button" className={locationMode === 'current' ? 'selected' : ''} disabled={busy} onClick={() => run(() => onChangeLocation('current', ''))}><Navigation size={16} /> 현재 위치 사용</button>
+            <button type="button" className={locationMode === 'manual' ? 'selected' : ''} disabled={busy} onClick={() => setLocationMode('manual')}><Pencil size={16} /> 직접 입력</button>
+          </div>
+          {locationMode === 'manual' && (
+            <div className="manual-location-input">
+              <input value={locationText} onChange={(event) => setLocationText(event.target.value)} placeholder="동네, 역, 주소를 입력해주세요" />
+              <button type="button" disabled={busy || !locationText.trim()} onClick={() => run(() => onChangeLocation('manual', locationText.trim()))}>저장</button>
+            </div>
+          )}
+        </div>}
 
         {isOwner && otherMembers.length > 0 && (
           <div className="owner-transfer-block">

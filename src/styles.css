@@ -385,6 +385,11 @@ button:focus-visible, input:focus-visible { outline: 3px solid rgba(22, 35, 30, 
 .tournament-waiting { min-height: 300px; justify-content: center; }
 .location-line { display: flex; align-items: center; gap: 6px; margin: 0 3px 11px; font-size: 10px; font-weight: 750; }
 .location-line small { margin-left: auto; color: var(--muted); font-size: 8px; font-weight: 600; }
+.location-override-button { display: block; margin: 0 0 10px; padding: 0; border: 0; background: transparent; color: var(--accent-strong); font-size: 10px; font-weight: 800; cursor: pointer; }
+.location-override-form, .manual-location-input { display: grid; grid-template-columns: 1fr auto; gap: 7px; margin: 0 0 12px; }
+.location-override-form input, .manual-location-input input { min-width: 0; height: 43px; padding: 0 12px; border: 1px solid var(--line); border-radius: 12px; background: var(--card); color: var(--ink); outline: 0; font-size: 10px; }
+.location-override-form button, .manual-location-input button { border: 0; border-radius: 12px; padding: 0 12px; background: var(--ink); color: #fff; font-size: 10px; font-weight: 800; cursor: pointer; }
+.location-override-form button:disabled, .manual-location-input button:disabled { opacity: .5; cursor: not-allowed; }
 .restaurant-list { display: grid; gap: 9px; }
 .naver-restaurant-map, .map-placeholder { width: 100%; height: 190px; margin-bottom: 12px; border: 1px solid var(--line); border-radius: 20px; overflow: hidden; background: #e9e9e6; }
 .map-placeholder { display: flex; align-items: center; justify-content: center; gap: 9px; padding: 24px; color: var(--muted); font-size: 10px; font-weight: 750; text-align: center; }
@@ -486,6 +491,13 @@ button:focus-visible, input:focus-visible { outline: 3px solid rgba(22, 35, 30, 
 .room-mode-setting button.selected { border-color: var(--accent); background: var(--accent-faint); }
 .room-mode-setting button.selected > svg { opacity: 1; }
 .room-mode-setting button:disabled { cursor: not-allowed; opacity: .55; }
+.room-location-setting { margin-top: 18px; padding-top: 16px; border-top: 1px solid var(--line); }
+.room-location-setting > strong { font-size: 12px; }
+.room-location-setting > p { margin: 5px 0 11px; color: var(--muted); font-size: 9px; }
+.location-choice-buttons { display: grid; grid-template-columns: 1fr 1fr; gap: 7px; }
+.location-choice-buttons button { display: flex; align-items: center; justify-content: center; gap: 5px; min-height: 42px; border: 1px solid var(--line); border-radius: 12px; background: var(--card); color: var(--ink); font-size: 10px; font-weight: 750; cursor: pointer; }
+.location-choice-buttons button.selected { border-color: var(--accent); background: var(--accent-faint); color: var(--accent-strong); }
+.manual-location-input { margin-top: 9px; }
 .owner-transfer-block { margin-top: 19px; padding-top: 17px; border-top: 1px solid var(--line); }
 .owner-transfer-block > strong { font-size: 12px; }
 .owner-transfer-block > p { margin: 5px 0 12px; color: var(--muted); font-size: 9px; }
@@ -883,6 +895,7 @@ button:focus-visible, input:focus-visible, textarea:focus-visible {
 .onboarding-choice > div { display: flex; flex-wrap: wrap; gap: 7px; }
 .onboarding-choice button { padding: 8px 11px; border: 1px solid var(--line); border-radius: 99px; background: var(--card); color: #79685d; font-size: 9px; cursor: pointer; }
 .onboarding-choice button.selected { border-color: var(--accent); background: linear-gradient(135deg, var(--accent), var(--accent-strong)); color: #fff; box-shadow: 0 5px 13px rgba(218,79,31,.18); }
+.guest-onboarding-page .onboarding-choice button { position: relative; z-index: 1; touch-action: manipulation; pointer-events: auto; }
 .onboarding-submit { flex: 0 0 auto; margin-top: 12px; }
 .guest-name-chip { flex: 0 0 auto; display: flex; align-items: baseline; gap: 8px; padding: 12px 14px; border: 1px solid #f0d6c7; border-radius: 16px; background: var(--accent-faint); }
 .guest-name-chip span, .guest-name-chip small { color: var(--muted); font-size: 8px; }
@@ -1238,6 +1251,11 @@ button:focus-visible, input:focus-visible, textarea:focus-visible {
 :root[data-theme="dark"] .hot-potato-leaderboard,
 :root[data-theme="dark"] .winner-menu-grid button,
 :root[data-theme="dark"] .room-mode-setting button { border-color: var(--line); background: var(--card); color: var(--ink); }
+:root[data-theme="dark"] .guest-onboarding-page .onboarding-choice button { color: #fff7f1; background: #2d201a; border-color: #5a4032; }
+:root[data-theme="dark"] .guest-onboarding-page .onboarding-choice button.selected { color: #fff; background: linear-gradient(135deg, #f06a3b, #c94422); border-color: #ff7847; }
+:root[data-theme="dark"] .profile-card { background: linear-gradient(145deg, #302019, #211612); border-color: #604333; box-shadow: 0 14px 30px rgba(0,0,0,.2); }
+:root[data-theme="dark"] .profile-photo { border-color: #fff7f1; box-shadow: 0 0 0 4px rgba(255,120,71,.18); }
+:root[data-theme="dark"] .photo-badge { border-color: #211612; background: #ff7847; color: #20100b; }
 :root[data-theme="dark"] .hot-potato-arena { border-color: #513428; background: linear-gradient(160deg, #352219, #241812); }
 :root[data-theme="dark"] .hot-potato-waiting { background: #302019; }
 
