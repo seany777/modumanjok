@@ -76,7 +76,6 @@ export default async function handler(request, response) {
         link: item.link || '',
         lng: Number(item.mapx) / 10000000,
         lat: Number(item.mapy) / 10000000,
-        rating: null,
       })),
     })
   } catch (error) {

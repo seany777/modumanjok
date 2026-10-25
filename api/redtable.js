@@ -3,7 +3,6 @@ const REDTABLE_BASE_URL = 'https://seoul.openapi.redtable.global'
 const RESOURCE_PATHS = {
   menus: '/api/menu/korean',
   restaurants: '/api/rstr',
-  quality: '/api/rstr/qlt',
 }
 
 function sendJson(response, status, payload) {
