@@ -1937,6 +1937,13 @@ button:focus-visible, input:focus-visible, textarea:focus-visible {
   .community-menu-card { padding: 30px; }
 }
 
+.home-page > .home-community-section { order: 4; }
+.home-community-card { width: 100%; min-height: 125px; display: flex; align-items: center; gap: 14px; padding: 18px; border: 1px solid var(--line); border-radius: 22px; background: var(--card); color: var(--ink); text-align: left; cursor: pointer; }
+.home-community-card > .quick-icon, .home-community-card > svg { flex-shrink: 0; }
+.home-community-content { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 10px; }
+.home-community-content strong { font-size: 28px; line-height: 1.25; letter-spacing: -.04em; overflow-wrap: anywhere; }
+.home-community-content small { display: flex; align-items: flex-start; gap: 4px; color: var(--muted); line-height: 1.5; }
+.home-community-content small svg { flex-shrink: 0; margin-top: 2px; }
 .room-submit-button { display: flex; justify-content: center; align-items: center; gap: 9px; }
 .room-submit-button .mini-spinner { width: 17px; height: 17px; border-color: currentColor; border-right-color: transparent; }
 .room-submit-button:disabled { cursor: wait; }
@@ -1975,11 +1982,12 @@ button:focus-visible, input:focus-visible, textarea:focus-visible {
   .bottom-nav button .nav-icon { width: 28px; }
   .home-page { display: grid; grid-template-columns: minmax(0, 1.15fr) minmax(0, 1fr); grid-template-rows: auto auto 1fr; gap: 24px; align-content: start; }
   .home-page > .top-header { grid-column: 1 / -1; grid-row: 1; padding-bottom: 0; }
-  .home-page > .home-ad-wrap { grid-column: 1; grid-row: 2; align-self: start; margin: 0; }
+  .home-page > .home-ad-wrap { grid-column: 1; grid-row: 2; align-self: stretch; display: grid; grid-template-columns: minmax(0, 1fr); min-width: 0; margin: 0; }
+  .home-page > .home-ad-wrap .home-ad-carousel { height: 100%; min-width: 0; }
   .home-page > .section-block.compact { grid-column: 1; grid-row: 3; margin-top: 0; }
-  .home-page > .section-block:not(.compact) {
+  .home-page > .home-recent-section {
     grid-column: 2;
-    grid-row: 2 / 4;
+    grid-row: 2;
     align-self: start;
     margin-top: 0;
     padding: 22px;
@@ -1987,6 +1995,8 @@ button:focus-visible, input:focus-visible, textarea:focus-visible {
     border-radius: 24px;
     background: var(--card);
   }
+  .home-page > .home-community-section { grid-column: 2; grid-row: 3; align-self: start; margin-top: 0; }
+  .home-community-card { min-height: 148px; }
   .home-page .home-ad-card { min-height: 270px; padding: 26px 24px 42px; }
   .home-page .home-ad-card h2 { font-size: 27px; }
   .home-page .home-ad-card > button { position: relative; left: auto; bottom: auto; margin-top: 16px; }

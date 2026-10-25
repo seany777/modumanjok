@@ -1807,6 +1807,8 @@ function App() {
         {activeTab === 'home' && (
           <HomeScreen
             rooms={rooms}
+            latestRoomSelection={latestRoomSelection}
+            onGoCommunity={() => navigateTo('/community')}
             onOpenRoom={openRoom}
             onGoRooms={() => navigateTo('/rooms')}
             onOpenCreate={() => setSheet('create')}
@@ -2078,7 +2080,7 @@ function AnimatedHomeTitle({ children }) {
   )
 }
 
-function HomeScreen({ rooms, onOpenRoom, onGoRooms, onOpenCreate, onOpenJoin, onOpenHistory, onOpenTaste }) {
+function HomeScreen({ rooms, latestRoomSelection, onGoCommunity, onOpenRoom, onGoRooms, onOpenCreate, onOpenJoin, onOpenHistory, onOpenTaste }) {
   const recentRoom = rooms[0]
   const [homeTitle] = useState(() => homeTitleMessages[Math.floor(Math.random() * homeTitleMessages.length)])
   return (
@@ -2101,7 +2103,7 @@ function HomeScreen({ rooms, onOpenRoom, onGoRooms, onOpenCreate, onOpenJoin, on
         </div>
       </section>
 
-      <section className="section-block">
+      <section className="section-block home-recent-section">
         <div className="section-heading">
           <div>
             <span className="section-kicker">RECENT ROOM</span>
@@ -2126,6 +2128,7 @@ function HomeScreen({ rooms, onOpenRoom, onGoRooms, onOpenCreate, onOpenJoin, on
         )}
       </section>
 
+      <HomeCommunityCard fallbackSelection={latestRoomSelection} onOpen={onGoCommunity} />
     </>
   )
 }
@@ -3720,7 +3723,7 @@ function ActionSheet({ type, initialCode = '', onClose, onCreate, onJoin }) {
   )
 }
 
-function CommunityScreen({ fallbackSelection }) {
+function useLatestCommunitySelection(fallbackSelection) {
   const [selection, setSelection] = useState(null)
   const [status, setStatus] = useState('loading')
   const [retry, setRetry] = useState(0)
@@ -3737,6 +3740,26 @@ function CommunityScreen({ fallbackSelection }) {
     .filter((item) => item?.menu && item?.restaurant)
     .sort((a, b) => Number(b.decidedAt || 0) - Number(a.decidedAt || 0))[0]
 
+  return { latest, status, retry: () => setRetry((value) => value + 1) }
+}
+
+function HomeCommunityCard({ fallbackSelection, onOpen }) {
+  const { latest, status } = useLatestCommunitySelection(fallbackSelection)
+  return (
+    <section className="section-block home-community-section">
+      <div className="section-heading"><div><span className="section-kicker">COMMUNITY · BETA</span><h2>최근 선택된 메뉴</h2></div><button type="button" className="text-button" onClick={onOpen}>커뮤 보기 <ChevronRight size={16} /></button></div>
+      <button type="button" className="home-community-card" onClick={onOpen}>
+        <span className="quick-icon"><UtensilsCrossed size={22} /></span>
+        <span className="home-community-content" aria-live="polite" aria-atomic="true">{latest ? <><strong>{latest.menu}</strong><small><MapPin size={13} />{latest.restaurant}</small></> : <><strong>{status === 'loading' ? '최근 메뉴 불러오는 중…' : status === 'error' ? '커뮤니티에서 확인해보세요' : '첫 메뉴를 기다리고 있어요'}</strong><small>다른 모임이 선택한 메뉴를 만나보세요.</small></>}</span>
+        <ChevronRight size={18} />
+      </button>
+    </section>
+  )
+}
+
+function CommunityScreen({ fallbackSelection }) {
+  const { latest, status, retry } = useLatestCommunitySelection(fallbackSelection)
+
   return (
     <>
       <Header eyebrow="COMMUNITY · BETA" title="커뮤니티" />
@@ -3752,7 +3775,7 @@ function CommunityScreen({ fallbackSelection }) {
             </article>
           ) : (
             <div className="community-empty">
-              {status === 'loading' ? <><span className="mini-spinner" /><p>최근 메뉴를 불러오고 있어요.</p></> : status === 'error' ? <><AlertTriangle size={25} /><p>최근 메뉴를 불러오지 못했어요.</p><button type="button" onClick={() => setRetry((value) => value + 1)}>다시 시도</button></> : <><UtensilsCrossed size={28} /><h3>첫 번째 메뉴를 기다리고 있어요</h3><p>모임에서 매장을 확정하면 여기에 표시돼요.</p></>}
+              {status === 'loading' ? <><span className="mini-spinner" /><p>최근 메뉴를 불러오고 있어요.</p></> : status === 'error' ? <><AlertTriangle size={25} /><p>최근 메뉴를 불러오지 못했어요.</p><button type="button" onClick={retry}>다시 시도</button></> : <><UtensilsCrossed size={28} /><h3>첫 번째 메뉴를 기다리고 있어요</h3><p>모임에서 매장을 확정하면 여기에 표시돼요.</p></>}
             </div>
           )}
         </div>
