@@ -718,6 +718,57 @@ const normalizeNickname = (value = '') => value.trim().replace(/\s+/g, ' ').toLo
 const nicknamePathKey = (value = '') => encodeURIComponent(normalizeNickname(value)).replace(/\./g, '%2E')
 const createGuestNickname = (uid = '') => `너구리-${uid.slice(-6).toUpperCase() || Math.random().toString(16).slice(2, 8).toUpperCase()}`
 
+let kakaoSdkPromise = null
+const loadKakaoSdk = () => {
+  if (window.Kakao) return Promise.resolve(window.Kakao)
+  if (kakaoSdkPromise) return kakaoSdkPromise
+  kakaoSdkPromise = new Promise((resolve, reject) => {
+    const script = document.createElement('script')
+    script.src = 'https://t1.kakaocdn.net/kakao_js_sdk/2.7.4/kakao.min.js'
+    script.onload = () => resolve(window.Kakao)
+    script.onerror = () => reject(new Error('Kakao SDK를 불러오지 못했어요.'))
+    document.head.appendChild(script)
+  })
+  return kakaoSdkPromise
+}
+
+const shareRoomInvite = async (room, onToast, context = '') => {
+  const inviteUrl = `${window.location.origin}/join/${encodeURIComponent(room.code)}`
+  const title = context ? `${room.name} · ${context}` : `${room.name}에 초대합니다`
+  const description = context
+    ? `${context} 메뉴가 정해졌어요. 모임 진행을 이어가려면 아래 링크로 접속해주세요.`
+    : '초대 링크를 눌러 모임에 참여해주세요.'
+  const kakaoKey = import.meta.env.VITE_KAKAO_JS_KEY
+  try {
+    if (kakaoKey) {
+      const Kakao = await loadKakaoSdk()
+      if (!Kakao.isInitialized()) Kakao.init(kakaoKey)
+      Kakao.Share.sendDefault({
+        objectType: 'feed',
+        content: {
+          title,
+          description,
+          imageUrl: `${window.location.origin}/assets/modumanjok-logo.png`,
+          link: { mobileWebUrl: inviteUrl, webUrl: inviteUrl },
+        },
+        buttons: [{ title: '모임 참여하기', link: { mobileWebUrl: inviteUrl, webUrl: inviteUrl } }],
+      })
+      onToast?.('카카오톡 공유창을 열었어요')
+      return
+    }
+    if (navigator.share) {
+      await navigator.share({ title, text: `${description}\n${inviteUrl}`, url: inviteUrl })
+      onToast?.('공유창을 열었어요')
+      return
+    }
+  } catch (error) {
+    if (error?.name === 'AbortError') return
+    console.warn('Kakao share fallback:', error)
+  }
+  try { await navigator.clipboard.writeText(inviteUrl) } catch { /* clipboard unavailable */ }
+  onToast?.('초대 링크를 복사했어요. 카카오톡에 붙여넣어주세요')
+}
+
 const normalizeRoom = (id, room) => {
   const memberRecords = room?.members || {}
   return {
@@ -1072,6 +1123,10 @@ function App() {
     if (!selectedRoom) return
     const current = rooms.find((room) => room.id === selectedRoom.id)
     if (current) setSelectedRoom(current)
+    else {
+      setSelectedRoom(null)
+      if (window.location.pathname.startsWith('/rooms/')) navigateTo('/rooms', { replace: true })
+    }
   }, [rooms, selectedRoom?.id])
 
   useEffect(() => {
@@ -1435,6 +1490,24 @@ function App() {
     }
   }
 
+  const kickMember = async (room, uid) => {
+    if (!authUser || room.ownerId !== authUser.uid || uid === authUser.uid) return
+    const member = room.memberRecords?.[uid]
+    if (!member) return
+    try {
+      await update(ref(database), {
+        [`rooms/${room.id}/members/${uid}`]: null,
+        [`userRooms/${uid}/${room.id}`]: null,
+        [`rooms/${room.id}/lastActivityAt`]: Date.now(),
+      })
+      setToast(`${member.name || '멤버'}님을 방에서 내보냈어요`)
+    } catch (error) {
+      console.error('Member kick failed:', error)
+      setToast('멤버를 내보내지 못했어요')
+      throw error
+    }
+  }
+
   const inviteFriend = async (room, friend) => {
     if (!authUser || room.ownerId !== authUser.uid) return
     if (room.memberRecords?.[friend.uid]) {
@@ -1628,7 +1701,9 @@ function App() {
           friends={friends}
           onBack={() => navigateTo('/rooms')}
           onShare={() => setShareRoom(selectedRoom)}
+          onKakaoShare={(context) => shareRoomInvite(selectedRoom, setToast, context)}
           onDelete={() => deleteRoom(selectedRoom)}
+          onKickMember={(uid) => kickMember(selectedRoom, uid)}
           onLeave={(nextOwnerId) => leaveRoom(selectedRoom, nextOwnerId)}
           onTransfer={(nextOwnerId) => transferOwner(selectedRoom, nextOwnerId)}
           onOpenFriends={() => setFriendSheetRoom(selectedRoom)}
@@ -2127,7 +2202,7 @@ function RoomCard({ room, onOpen, onLongPress }) {
   )
 }
 
-function RoomDetail({ room, currentUser, friends, onBack, onShare, onDelete, onLeave, onTransfer, onOpenFriends, onFlowChange, onTournamentSubmit, onHotPotatoSubmit, onHotPotatoChoose, onKeep }) {
+function RoomDetail({ room, currentUser, friends, onBack, onShare, onKakaoShare, onDelete, onLeave, onTransfer, onKickMember, onOpenFriends, onFlowChange, onTournamentSubmit, onHotPotatoSubmit, onHotPotatoChoose, onKeep }) {
   const pageRef = useRef(null)
   const menuConfirmationRef = useRef({ roomId: room.id, stage: Number(room.flow?.stage || 0) })
   const [stage, setStage] = useState(Number(room.flow?.stage || 0))
@@ -2613,7 +2688,7 @@ function RoomDetail({ room, currentUser, friends, onBack, onShare, onDelete, onL
             {isOwner && <button type="button" className="share-wide secondary-share" onClick={onOpenFriends}><UsersRound size={19} /> 친구 바로 초대</button>}
           </div>
         </div>
-        {roomSettingsOpen && <RoomSettingsModal room={room} currentUser={currentUser} onClose={() => setRoomSettingsOpen(false)} onLeave={onLeave} onDelete={onDelete} onTransfer={onTransfer} onChangeMode={changeRoomMode} onChangeBudget={changeRoomBudget} />}
+        {roomSettingsOpen && <RoomSettingsModal room={room} currentUser={currentUser} onClose={() => setRoomSettingsOpen(false)} onLeave={onLeave} onDelete={onDelete} onTransfer={onTransfer} onKick={onKickMember} onChangeMode={changeRoomMode} onChangeBudget={changeRoomBudget} />}
       </main>
     )
   }
@@ -2803,6 +2878,7 @@ function RoomDetail({ room, currentUser, friends, onBack, onShare, onDelete, onL
       {stage === 3 && (
         <section className="room-stage-section">
           <div className="selected-menu-banner"><span><CheckCircle2 size={22} /></span><div><small>선택한 메뉴</small><strong>{selectedMenu}</strong></div></div>
+          <button type="button" className="menu-share-button" onClick={() => onKakaoShare?.(selectedMenu)}><MessageCircleMore size={16} /> 메뉴 결정 링크를 카카오톡으로 공유</button>
           <div className="location-line"><Navigation size={16} /><span>{locationMode === 'manual' ? '입력한 위치 기준 거리' : userLocation ? '내 현재 위치 기준 거리' : '현재 위치 확인 전'}</span><small>{locationMode === 'manual' ? locationText : userLocation ? `${userLocation.lat.toFixed(3)}, ${userLocation.lng.toFixed(3)}` : '위치 권한 필요'}</small></div>
           {(userLocation || locationMode === 'manual') && <p className={`data-range-note ${restaurantSource}`}><Info size={13} /> {currentArea && <strong>{currentArea}</strong>} {restaurantMessage || '현재 위치를 식당 검색에 반영하고 있어요.'}</p>}
           <NaverRestaurantMap restaurants={restaurantOptions} selectedRestaurant={selectedRestaurant} userLocation={userLocation} />
@@ -2882,7 +2958,7 @@ function RoomDetail({ room, currentUser, friends, onBack, onShare, onDelete, onL
         </div>
       )}
       {isOwner && !(mode === 'competition' && stage >= 2) && <button type="button" className="room-undo-button" onClick={undoStage} aria-label="이전 단계로 돌아가기"><RotateCcw size={17} /> 실행 취소</button>}
-      {roomSettingsOpen && <RoomSettingsModal room={room} currentUser={currentUser} onClose={() => setRoomSettingsOpen(false)} onLeave={onLeave} onDelete={onDelete} onTransfer={onTransfer} onChangeMode={changeRoomMode} onChangeBudget={changeRoomBudget} onChangeLocation={(locationMode, locationText) => onFlowChange({ locationMode, locationText })} />}
+        {roomSettingsOpen && <RoomSettingsModal room={room} currentUser={currentUser} onClose={() => setRoomSettingsOpen(false)} onLeave={onLeave} onDelete={onDelete} onTransfer={onTransfer} onKick={onKickMember} onChangeMode={changeRoomMode} onChangeBudget={changeRoomBudget} onChangeLocation={(locationMode, locationText) => onFlowChange({ locationMode, locationText })} />}
     </main>
   )
 }
@@ -3138,7 +3214,7 @@ function BottomNav({ active, onChange }) {
   )
 }
 
-function RoomSettingsModal({ room, currentUser, onClose, onLeave, onDelete, onTransfer, onChangeMode, onChangeBudget, onChangeLocation }) {
+function RoomSettingsModal({ room, currentUser, onClose, onLeave, onDelete, onTransfer, onKick, onChangeMode, onChangeBudget, onChangeLocation }) {
   const isOwner = room.ownerId === currentUser.uid
   const otherMembers = Object.entries(room.memberRecords || {}).filter(([uid]) => uid !== currentUser.uid)
   const [nextOwnerId, setNextOwnerId] = useState(otherMembers[0]?.[0] || '')
@@ -3235,6 +3311,22 @@ function RoomSettingsModal({ room, currentUser, onClose, onLeave, onDelete, onTr
           </div>
         )}
 
+        {isOwner && otherMembers.length > 0 && (
+          <div className="member-manage-block">
+            <strong>멤버 관리</strong>
+            <p>연결이 끊겨 진행을 방해하는 멤버를 방에서 내보낼 수 있어요.</p>
+            <div className="member-manage-list">
+              {otherMembers.map(([uid, member]) => (
+                <div key={uid}>
+                  <span>{member.name?.slice(0, 1) || '?'}</span>
+                  <b>{member.name || '참여자'}</b>
+                  <button type="button" disabled={busy} onClick={() => run(() => onKick?.(uid))}>추방</button>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
         <div className="room-danger-actions">
           {isOwner && otherMembers.length === 0 ? (
             <button type="button" disabled={busy} onClick={() => run(onDelete)}><Trash2 size={18} /> 방 삭제하고 나가기</button>
@@ -3310,6 +3402,7 @@ function ShareModal({ room, onClose, onToast }) {
         <button type="button" className="code-box" onClick={copy}>
           <span><small>방 접속 코드</small><strong>{room.code}</strong></span><Copy size={19} />
         </button>
+        <button type="button" className="kakao-share-button" onClick={() => shareRoomInvite(room, onToast)}><MessageCircleMore size={17} /> 카카오톡으로 초대 링크 공유</button>
         <p className="hold-tip">방 카드를 길게 누르면 언제든 다시 볼 수 있어요.</p>
       </section>
     </div>
