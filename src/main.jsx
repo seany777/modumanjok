@@ -2066,22 +2066,19 @@ function HomeScreen({ rooms, onOpenRoom, onGoRooms, onOpenCreate, onOpenJoin, on
     <>
       <Header eyebrow="반가워요 👋" title={<AnimatedHomeTitle>{homeTitle}</AnimatedHomeTitle>} action={<span />} />
 
-      <section className="home-service-summary" aria-label="서비스 소개">
-        <Sparkles size={18} />
-        <p>모임 구성원의 예산과 취향을 모아 모두가 함께 먹을 메뉴를 빠르게 정해요.</p>
-      </section>
+      <HomeAdCarousel onOpenCreate={onOpenCreate} />
 
-      <section className="section-block compact home-action-section">
+      <section className="section-block compact">
         <div className="section-heading">
           <div>
-            <span className="section-kicker">START</span>
-            <h2>모임 시작하기</h2>
+            <span className="section-kicker">QUICK MENU</span>
+            <h2>빠른 메뉴</h2>
           </div>
         </div>
-        <div className="quick-grid home-quick-grid">
-          <button type="button" className="home-create-action" onClick={onOpenCreate}><span className="quick-icon coral"><Plus size={23} /></span><span><b>새 모임 만들기</b><small>방을 만들고 친구를 초대해요</small></span><ChevronRight size={20} /></button>
-          <button type="button" className="home-join-action" onClick={onOpenJoin}><span className="quick-icon"><LogIn size={22} /></span><span><b>초대 코드로 참여</b><small>6자리 코드를 입력해요</small></span><ChevronRight size={20} /></button>
-          <button type="button" className="home-taste-action" onClick={onOpenTaste}><Coffee size={17} /><span>취향 설정</span><small>내 조건 관리</small></button>
+        <div className="quick-grid">
+          <button type="button" onClick={onOpenJoin}><span className="quick-icon"><LogIn size={22} /></span><b>코드로 방 접속</b><small>초대 코드 입력</small></button>
+          <button type="button" onClick={onOpenCreate}><span className="quick-icon coral"><Plus size={23} /></span><b>방 생성하기</b><small>새 모임 만들기</small></button>
+          <button type="button" onClick={onOpenTaste}><span className="quick-icon"><Coffee size={22} /></span><b>취향 설정</b><small>내 조건 관리</small></button>
         </div>
       </section>
 
@@ -2110,24 +2107,15 @@ function HomeScreen({ rooms, onOpenRoom, onGoRooms, onOpenCreate, onOpenJoin, on
         )}
       </section>
 
-      <section className="section-block home-promotion-section">
-        <div className="section-heading">
-          <div>
-            <span className="section-kicker">DISCOVER</span>
-            <h2>이런 메뉴도 살펴보세요</h2>
-          </div>
-        </div>
-        <HomeAdCarousel onOpenCreate={onOpenCreate} />
-      </section>
     </>
   )
 }
 
 function HomeAdCarousel({ onOpenCreate }) {
   const ads = [
+    { label: '모두만족', title: '친구를 모으고\n메뉴를 바로 정해요', copy: '방을 만들고 초대 코드를 공유하세요.', action: '새 모임 시작', tone: 'ad-accent', opensCreate: true },
     { label: 'AD · 모두만족 PICK', title: '오늘 첫 모임은\n배달비 3,000원 할인', copy: '가상의 프로모션 광고입니다.', action: '쿠폰 보기', tone: 'ad-dark' },
     { label: 'AD · CAMPUS', title: '학교 앞 인기 메뉴\n점심 세트 모아보기', copy: '학생 모임을 위한 가상 광고', action: '둘러보기', tone: 'ad-light' },
-    { label: '모두만족', title: '친구를 모으고\n메뉴를 바로 정해요', copy: '방을 만들고 초대 코드를 공유하세요.', action: '새 모임 시작', tone: 'ad-accent' },
   ]
   const scroller = useRef(null)
   const [activeAd, setActiveAd] = useState(0)
@@ -2155,11 +2143,11 @@ function HomeAdCarousel({ onOpenCreate }) {
         className="home-ad-carousel"
         onScroll={(event) => setActiveAd(Math.round(event.currentTarget.scrollLeft / event.currentTarget.clientWidth))}
       >
-        {ads.map((ad, index) => (
+        {ads.map((ad) => (
           <article className={`home-ad-card ${ad.tone}`} key={ad.title}>
             <span>{ad.label}</span><h2>{ad.title.split('\n').map((line) => <React.Fragment key={line}>{line}<br /></React.Fragment>)}</h2><p>{ad.copy}</p>
-            <button type="button" onClick={index === 2 ? onOpenCreate : () => {}}>{ad.action}</button>
-            <span className="ad-badge">AD</span>
+            <button type="button" onClick={ad.opensCreate ? onOpenCreate : () => {}}>{ad.action}</button>
+            {!ad.opensCreate && <span className="ad-badge">AD</span>}
           </article>
         ))}
       </div>
