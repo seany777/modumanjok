@@ -1,0 +1,26 @@
+{
+  "id": "/",
+  "name": "모두만족",
+  "short_name": "모두만족",
+  "description": "모임 구성원의 취향을 모아 함께 먹을 메뉴를 정하는 서비스",
+  "lang": "ko",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "background_color": "#fff7f1",
+  "theme_color": "#ed6535",
+  "icons": [
+    {
+      "src": "/assets/modumanjok-icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "/assets/modumanjok-icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any"
+    }
+  ]
+}

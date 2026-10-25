@@ -1,0 +1,26 @@
+<!doctype html>
+<html lang="ko">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="theme-color" content="#ed6535" />
+    <title>연결 확인 · 모두만족</title>
+    <style>
+      * { box-sizing: border-box; }
+      body { min-height: 100vh; margin: 0; display: grid; place-items: center; padding: 24px; background: #fff7f1; color: #251b16; font-family: system-ui, sans-serif; text-align: center; }
+      main { max-width: 360px; }
+      img { width: 88px; height: 88px; border-radius: 20px; }
+      h1 { margin: 22px 0 8px; font-size: 24px; }
+      p { margin: 0 0 22px; color: #75675e; line-height: 1.6; }
+      button { min-height: 46px; padding: 0 25px; border: 0; border-radius: 14px; background: #ed6535; color: white; font: inherit; font-weight: 700; cursor: pointer; }
+    </style>
+  </head>
+  <body>
+    <main>
+      <img src="/assets/modumanjok-icon-192.png" alt="모두만족" />
+      <h1>인터넷 연결을 확인해주세요</h1>
+      <p>모임 정보는 실시간으로 동기화돼요. 연결한 뒤 다시 시도해주세요.</p>
+      <button type="button" onclick="location.reload()">다시 시도</button>
+    </main>
+  </body>
+</html>
