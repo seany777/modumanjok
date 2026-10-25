@@ -826,6 +826,7 @@ const normalizeRoom = (id, room) => {
   return {
     id,
     ...room,
+    flow: { ...room?.flow, stage: Number(room?.flow?.stage || 0) === 1 ? 0 : Number(room?.flow?.stage || 0) },
     color: room?.color || roomColors[Math.abs(String(id).length) % roomColors.length],
     members: Object.values(memberRecords).map((member) => member.name || '참여자'),
     memberRecords,
@@ -865,6 +866,7 @@ function App() {
   const [profileReady, setProfileReady] = useState(false)
   const [needsOnboarding, setNeedsOnboarding] = useState(false)
   const [authBusy, setAuthBusy] = useState(true)
+  const [authPendingMethod, setAuthPendingMethod] = useState(null)
   const [roomsLoading, setRoomsLoading] = useState(true)
   const [roomsLoadStatus, setRoomsLoadStatus] = useState('loading')
   const [roomsLoadError, setRoomsLoadError] = useState('')
@@ -886,7 +888,7 @@ function App() {
   const [appSettings, setAppSettings] = useState(loadSavedSettings)
   const [userProfile, setUserProfile] = useState(defaultUserProfile)
   const memberPreferenceSync = useRef('')
-  const googleLoginInFlight = useRef(false)
+  const authAttemptInFlight = useRef(false)
 
   useEffect(() => {
     if (splashState !== 'visible') return undefined
@@ -1051,7 +1053,7 @@ function App() {
   useEffect(() => onAuthStateChanged(auth, async (user) => {
     setProfileReady(false)
     setAuthUser(user)
-    setAuthBusy(false)
+    if (!authAttemptInFlight.current) setAuthBusy(false)
     if (user) setAuthError('')
 
     if (!user) {
@@ -1236,8 +1238,9 @@ function App() {
   }, [rooms, friendSheetRoom?.id])
 
   const loginWithGoogle = async () => {
-    if (googleLoginInFlight.current) return
-    googleLoginInFlight.current = true
+    if (authAttemptInFlight.current) return
+    authAttemptInFlight.current = true
+    setAuthPendingMethod('google')
     setAuthBusy(true)
     setAuthError('')
     try {
@@ -1248,12 +1251,16 @@ function App() {
       console.error('Google login failed:', error)
       setAuthError(googleLoginErrorMessage(error))
     } finally {
-      googleLoginInFlight.current = false
+      authAttemptInFlight.current = false
       setAuthBusy(false)
+      setAuthPendingMethod(null)
     }
   }
 
   const continueAsGuest = async () => {
+    if (authAttemptInFlight.current) return
+    authAttemptInFlight.current = true
+    setAuthPendingMethod('guest')
     setAuthBusy(true)
     setAuthError('')
     try {
@@ -1263,7 +1270,10 @@ function App() {
       setAuthError(error.code === 'auth/operation-not-allowed'
         ? 'Firebase Authentication에서 익명 로그인을 활성화해주세요.'
         : '비회원으로 시작하지 못했어요. 잠시 후 다시 시도해주세요.')
+    } finally {
+      authAttemptInFlight.current = false
       setAuthBusy(false)
+      setAuthPendingMethod(null)
     }
   }
 
@@ -1456,7 +1466,7 @@ function App() {
       return
     }
     const changes = {
-      [`rooms/${room.id}/flow/stage`]: 1,
+      [`rooms/${room.id}/flow/stage`]: 0,
       [`rooms/${room.id}/flow/mode`]: room.flow?.mode || 'ai',
       [`rooms/${room.id}/flow/selectedMenu`]: null,
       [`rooms/${room.id}/flow/selectedRestaurant`]: null,
@@ -1763,7 +1773,7 @@ function App() {
   if (!authUser) {
     return (
       <AppFrame>
-        <LoginScreen onLogin={loginWithGoogle} onGuest={continueAsGuest} busy={authBusy} error={authError} />
+        <LoginScreen onLogin={loginWithGoogle} onGuest={continueAsGuest} busy={authBusy} pendingMethod={authPendingMethod} error={authError} />
       </AppFrame>
     )
   }
@@ -2050,7 +2060,9 @@ function GuestOnboardingScreen({ profile, onComplete, onBack }) {
   )
 }
 
-function LoginScreen({ onLogin, onGuest, busy, error }) {
+function LoginScreen({ onLogin, onGuest, busy, pendingMethod, error }) {
+  const googlePending = busy && pendingMethod === 'google'
+  const guestPending = busy && pendingMethod === 'guest'
   return (
     <main className="auth-page login-page">
       <div className="login-copy">
@@ -2063,11 +2075,11 @@ function LoginScreen({ onLogin, onGuest, busy, error }) {
         <div><UsersRound size={24} /><Sparkles size={22} /></div>
       </div>
       <div className="login-actions">
-        <button type="button" className="google-login-button" onClick={onLogin} disabled={busy}>
-          <span className="google-mark">G</span>
-          {busy ? 'Google 연결 중…' : 'Google로 계속하기'}
+        <button type="button" className="google-login-button" onClick={onLogin} disabled={busy} aria-busy={googlePending}>
+          {googlePending ? <span className="mini-spinner login-button-spinner" aria-hidden="true" /> : <span className="google-mark">G</span>}
+          {googlePending ? 'Google 연결 중…' : 'Google로 계속하기'}
         </button>
-        <button type="button" className="guest-login-button" onClick={onGuest} disabled={busy}>비회원으로 계속</button>
+        <button type="button" className="guest-login-button" onClick={onGuest} disabled={busy} aria-busy={guestPending}>{guestPending && <span className="mini-spinner login-button-spinner" aria-hidden="true" />}{guestPending ? '비회원으로 연결 중…' : '비회원으로 계속'}</button>
         {error && <p className="auth-error"><AlertTriangle size={14} /> {error}</p>}
         <small>계속하면 서비스 이용약관과 개인정보 처리방침에 동의하게 됩니다.</small>
       </div>
@@ -2405,6 +2417,8 @@ function RoomDetail({ room, currentUser, friends, onBack, onShare, onKakaoShare,
   const [roomSettingsOpen, setRoomSettingsOpen] = useState(false)
   const [lobbyBudgetMin, setLobbyBudgetMin] = useState(Number(room.flow?.budgetMin ?? 8000))
   const [lobbyBudgetMax, setLobbyBudgetMax] = useState(Number(room.flow?.budgetMax ?? 20000))
+  const [starting, setStarting] = useState(false)
+  const startInFlight = useRef(false)
   const [pullBack, setPullBack] = useState({ distance: 0, armed: false })
   const pullStartY = useRef(null)
   const pullEligible = useRef(false)
@@ -2625,7 +2639,7 @@ function RoomDetail({ room, currentUser, friends, onBack, onShare, onKakaoShare,
   const moveToStage = (nextStage, extra = {}) => {
     if (!isOwner) return
     setStage(nextStage)
-    onFlowChange({ stage: nextStage, mode, selectedMenu: selectedMenu || '', ...extra })
+    return onFlowChange({ stage: nextStage, mode, selectedMenu: selectedMenu || '', ...extra })
   }
 
   const pickTournamentMenu = (menu) => {
@@ -2725,22 +2739,33 @@ function RoomDetail({ room, currentUser, friends, onBack, onShare, onKakaoShare,
     })
   }
 
-  const startConfiguredMode = () => {
-    if (!isOwner) return
-    if (mode === 'ai') {
-      const topMenu = menuCandidates[0]?.unavailable ? '' : menuCandidates[0]?.name || ''
-      if (!topMenu) return
-      setSelectedMenu(topMenu)
-      moveToStage(3, { selectedMenu: topMenu })
-      return
+  const startConfiguredMode = async () => {
+    if (!isOwner || startInFlight.current || lobbyBudgetMin < 0 || lobbyBudgetMax <= 0 || lobbyBudgetMax < lobbyBudgetMin) return
+    startInFlight.current = true
+    setStarting(true)
+    try {
+      if (lobbyBudgetMin !== roomBudgetMin || lobbyBudgetMax !== roomBudgetMax) {
+        if (!await changeRoomBudget(lobbyBudgetMin, lobbyBudgetMax)) return
+      }
+      if (mode === 'ai') {
+        const candidate = makePreferenceCandidates(room.memberRecords, lobbyBudgetMin, lobbyBudgetMax)[0]
+        if (!candidate || candidate.unavailable) return
+        setSelectedMenu(candidate.name)
+        await moveToStage(3, { selectedMenu: candidate.name, selectedRestaurant: null, completedAt: null })
+      } else {
+        await moveToStage(2, {
+          selectedMenu: '', selectedRestaurant: null, completedAt: null,
+          tournamentSessionId: mode === 'tournament' ? `${Date.now()}` : null,
+          tournamentComplete: false,
+          rouletteResult: null,
+          rouletteSpinning: false,
+          hotPotatoSessionId: mode === 'competition' ? `${Date.now()}` : null,
+        })
+      }
+    } finally {
+      startInFlight.current = false
+      setStarting(false)
     }
-    moveToStage(2, {
-      tournamentSessionId: mode === 'tournament' ? `${Date.now()}` : null,
-      tournamentComplete: false,
-      rouletteResult: null,
-      rouletteSpinning: false,
-      hotPotatoSessionId: mode === 'competition' ? `${Date.now()}` : null,
-    })
   }
 
   const changeRoomMode = async (nextMode) => {
@@ -2771,7 +2796,7 @@ function RoomDetail({ room, currentUser, friends, onBack, onShare, onKakaoShare,
     if (stage === 1) moveToStage(0)
     if (stage === 2) {
       clearInterval(hotPotatoCountdownTimer.current)
-      moveToStage(1, {
+      moveToStage(0, {
         selectedMenu: mode === 'ai' && !menuCandidates[0]?.unavailable ? menuCandidates[0]?.name : '',
         rouletteResult: null,
         rouletteSpinning: false,
@@ -2782,7 +2807,7 @@ function RoomDetail({ room, currentUser, friends, onBack, onShare, onKakaoShare,
       setSelectedMenu(mode === 'ai' && !menuCandidates[0]?.unavailable ? menuCandidates[0]?.name : null)
     }
     if (stage === 3) {
-      const previousStage = mode === 'ai' ? 1 : 2
+      const previousStage = mode === 'ai' ? 0 : 2
       moveToStage(previousStage, {
         selectedRestaurant: null,
         ...(mode === 'ai' ? { selectedMenu: '' } : {}),
@@ -2846,7 +2871,7 @@ function RoomDetail({ room, currentUser, friends, onBack, onShare, onKakaoShare,
         <div className="room-stage-viewport"><div className={`room-stage-motion ${transitionDirection}`}>
           <section className="room-lobby-hero">
             <span className="status-badge">시작 전</span>
-            <h2>모두 모이면<br />메뉴 결정을 시작해요</h2>
+            <h2>모두 모이면<br className="lobby-title-break" /> 메뉴 결정을 시작해요</h2>
             <p>{room.subtitle}</p>
             <div className="lobby-member-grid">
               {memberEntries.map(([uid, member]) => (
@@ -2858,9 +2883,23 @@ function RoomDetail({ room, currentUser, friends, onBack, onShare, onKakaoShare,
               ))}
             </div>
           </section>
+          <div className="stage-condition-editor lobby-condition-editor" aria-label="모임 결정 방식과 예산">
+            <label><span>결정 방식</span><select value={mode} disabled={!isOwner || starting} onChange={(event) => changeRoomMode(event.target.value)}>
+              <option value="ai">맞춤 메뉴 추천</option>
+              <option value="tournament">메뉴 이상형 월드컵</option>
+              <option value="roulette">메뉴 룰렛</option>
+              <option value="competition">Hot Potato 먹기 도전</option>
+            </select></label>
+            <div className="stage-budget-editor"><span>1인당 예산</span><div>
+              <label><span>최소</span><input type="number" min="0" step="1000" disabled={!isOwner || starting} value={lobbyBudgetMin} onChange={(event) => setLobbyBudgetMin(Number(event.target.value))} /></label>
+              <em>~</em>
+              <label><span>최대</span><input type="number" min="1000" step="1000" disabled={!isOwner || starting} value={lobbyBudgetMax} onChange={(event) => setLobbyBudgetMax(Number(event.target.value))} /></label>
+            </div></div>
+            {isOwner && <button type="button" disabled={starting || lobbyBudgetMin < 0 || lobbyBudgetMax <= 0 || lobbyBudgetMax < lobbyBudgetMin} onClick={() => changeRoomBudget(lobbyBudgetMin, lobbyBudgetMax)}>예산 저장</button>}
+          </div>
           <section className="lobby-ready-card">
-            <div><UsersRound size={20} /><span><strong>{room.members.length}명 모두 참여했어요</strong><small>방장이 시작하면 1단계로 이동합니다.</small></span></div>
-            <button type="button" className="room-primary-button" disabled={!isOwner} onClick={() => moveToStage(1, { mode, selectedMenu: '' })}><Play size={18} fill="currentColor" /> {isOwner ? '시작하기' : '방장이 시작하기를 기다리는 중'}</button>
+            <div><UsersRound size={20} /><span><strong>{room.members.length}명 모두 참여했어요</strong><small>{isOwner ? '선택한 모드로 바로 시작해요. 변경한 예산도 함께 저장돼요.' : '방장이 선택한 모드로 시작하기를 기다려주세요.'}</small></span></div>
+            <button type="button" className="room-primary-button" disabled={!isOwner || starting || lobbyBudgetMin < 0 || lobbyBudgetMax <= 0 || lobbyBudgetMax < lobbyBudgetMin} onClick={startConfiguredMode}>{starting ? <span className="mini-spinner" /> : <Play size={18} fill="currentColor" />} {starting ? '시작하는 중…' : isOwner ? '시작하기' : '방장이 시작하기를 기다리는 중'}</button>
           </section>
           <div className="lobby-invite-actions">
             <button type="button" className="share-wide secondary-share" onClick={onShare}><QrCode size={19} /> 초대 코드 보기</button>
@@ -2885,48 +2924,12 @@ function RoomDetail({ room, currentUser, friends, onBack, onShare, onKakaoShare,
       <Header
         back
         onBack={onBack}
-        eyebrow={`STEP ${mode === 'ai' && stage >= 3 ? stage - 1 : stage} OF ${mode === 'ai' ? 3 : 4}`}
         title={stageTitles[stage]}
         action={<button type="button" className="icon-button" onClick={() => setRoomSettingsOpen(true)} aria-label="방 설정"><Settings size={21} /></button>}
       />
 
       <DesktopRoomSummary room={room} onShare={onShare} onSettings={() => setRoomSettingsOpen(true)} />
       <div className="room-stage-viewport"><div key={stage} className={`room-stage-motion ${transitionDirection}`}>
-
-      {stage === 1 && (
-        <section className="room-stage-section mode-ready-stage">
-          <div className="room-stage-copy"><span>MODE READY</span><h2>선택된 모드로 시작할까요?</h2><p>메뉴 결정 모드는 방장이 방 설정에서 변경할 수 있어요.</p></div>
-          <div className="configured-mode-card">
-            <span className="mode-icon"><Settings2 size={25} /></span>
-            <span><small>현재 메뉴 결정 모드</small><strong>{roomModeLabels[mode] || roomModeLabels.ai}</strong><em>{roomBudgetMin.toLocaleString('ko-KR')}원 ~ {roomBudgetMax.toLocaleString('ko-KR')}원</em></span>
-            <CheckCircle2 size={21} />
-          </div>
-          {isOwner && <button type="button" className="change-mode-button" onClick={() => setRoomSettingsOpen(true)}><Settings size={16} /> 방 설정에서 모드 변경</button>}
-          {isOwner && (
-            <div className="stage-condition-editor" aria-label="메뉴 결정 조건 바로 수정">
-              <label>
-                <span>결정 방식</span>
-                <select value={mode} onChange={(event) => changeRoomMode(event.target.value)}>
-                  <option value="ai">맞춤 메뉴 추천</option>
-                  <option value="tournament">메뉴 이상형 월드컵</option>
-                  <option value="roulette">메뉴 룰렛</option>
-                  <option value="competition">Hot Potato 먹기 도전</option>
-                </select>
-              </label>
-              <div className="stage-budget-editor">
-                <span>1인당 예산</span>
-                <div>
-                  <label><span>최소</span><input type="number" min="0" step="1000" value={lobbyBudgetMin} onChange={(event) => setLobbyBudgetMin(Number(event.target.value))} /></label>
-                  <em>~</em>
-                  <label><span>최대</span><input type="number" min="0" step="1000" value={lobbyBudgetMax} onChange={(event) => setLobbyBudgetMax(Number(event.target.value))} /></label>
-                </div>
-              </div>
-              <button type="button" disabled={lobbyBudgetMin < 0 || lobbyBudgetMax < lobbyBudgetMin} onClick={() => changeRoomBudget(lobbyBudgetMin, lobbyBudgetMax)}>예산 저장</button>
-            </div>
-          )}
-          <button type="button" className="room-primary-button stage-next" disabled={!isOwner} onClick={startConfiguredMode}>{isOwner ? (mode === 'ai' ? '맞춤 추천 1위로 바로 매장 찾기' : `${roomModeLabels[mode]} 시작하기`) : '방장이 시작하기를 기다리는 중'} <ChevronRight size={18} /></button>
-        </section>
-      )}
 
       {stage === 2 && mode === 'ai' && (
         <section className="room-stage-section">
@@ -3143,6 +3146,7 @@ function RoomDetail({ room, currentUser, friends, onBack, onShare, onKakaoShare,
           </div>
           <p className="prototype-note"><Info size={14} /> 매장 선택 전 주소와 네이버 지도 정보를 확인해주세요.</p>
           <button type="button" className="room-primary-button stage-next" disabled={!isOwner || !selectedRestaurant} onClick={() => moveToStage(4, { selectedRestaurant, completedAt: Date.now() })}>{!isOwner ? '방장이 매장을 결정하고 있어요' : selectedRestaurant ? `${selectedRestaurant.name}으로 결정` : '매장을 선택해주세요'} <ChevronRight size={18} /></button>
+          {mode === 'ai' && isOwner && <button type="button" className="change-mode-button try-another-mode" onClick={undoStage}><Settings2 size={16} /> 다른 모드도 써보기</button>}
         </section>
       )}
 
@@ -3812,6 +3816,10 @@ function CommunityScreen({ fallbackSelection }) {
         </div>
         <p className="community-update-note">매장이 확정되면 가장 최근 결과로 자동 업데이트돼요.</p>
       </section>
+      <aside className="community-beta-notice" aria-label="커뮤니티 베타 안내">
+        <Info size={20} aria-hidden="true" />
+        <div><span>커뮤니티 BETA 안내</span><h2>더 많은 기능이 추가될 예정이에요!</h2><p>지금은 최근 선택된 메뉴를 먼저 만나보세요.<br />더 다양한 이야기를 나눌 수 있는 공간으로 찾아올게요.</p></div>
+      </aside>
     </>
   )
 }
