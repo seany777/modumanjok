@@ -546,6 +546,39 @@ function loadNaverRestaurants(menu, area) {
   return loader
 }
 
+const ratingRequests = new Map()
+
+function loadRestaurantRating(restaurant) {
+  const key = `modumanjok-place-rating-v1:${restaurant.name}|${restaurant.address}`
+  try {
+    const cached = JSON.parse(sessionStorage.getItem(key) || 'null')
+    if (cached?.checkedAt > Date.now() - 86400000) return Promise.resolve(cached)
+  } catch { /* Cached public rating data is optional. */ }
+  if (ratingRequests.has(key)) return ratingRequests.get(key)
+  const task = (async () => {
+    const idToken = await auth.currentUser?.getIdToken()
+    if (!idToken) throw new Error('로그인 후 평점을 확인해주세요.')
+    const search = new URLSearchParams({ name: restaurant.name, address: restaurant.address })
+    const response = await fetch(`/api/restaurant-rating?${search}`, {
+      headers: { Authorization: `Bearer ${idToken}` }, signal: AbortSignal.timeout(55000),
+    })
+    const data = await response.json()
+    if (!response.ok) throw new Error(data.error || '평점을 확인하지 못했어요.')
+    try { sessionStorage.setItem(key, JSON.stringify(data)) } catch { /* Storage may be full. */ }
+    return data
+  })().finally(() => ratingRequests.delete(key))
+  ratingRequests.set(key, task)
+  return task
+}
+
+function RestaurantRatingControl({ restaurant, state, onLookup }) {
+  return <div className="restaurant-rating-control" aria-live="polite">
+    {restaurant.rating ? <span className="verified-rating">★ {restaurant.rating.toFixed(1)} <small>네이버 플레이스{restaurant.reviewCount ? ` · 방문자 리뷰 ${restaurant.reviewCount.toLocaleString('ko-KR')}개` : ''}</small></span>
+      : state?.status === 'ready' ? <span>{state.result.status === 'unmatched' ? '같은 매장인지 확인되지 않아 평점을 표시하지 않았어요.' : '이 매장은 별점을 제공하지 않아요.'}</span>
+      : <><button type="button" disabled={state?.status === 'loading'} onClick={() => onLookup(restaurant)}>{state?.status === 'loading' && <span className="mini-spinner" />}{state?.status === 'loading' ? '평점 확인 중…' : state?.status === 'error' ? '평점 다시 확인' : '네이버 평점 확인'}</button>{state?.status === 'error' && <small>{state.message}</small>}</>}
+  </div>
+}
+
 function reverseGeocodeArea(location, keyId) {
   if (!location || !keyId) return Promise.reject(new Error('위치 또는 지도 키가 없습니다.'))
   return loadNaverMaps(keyId).then((maps) => new Promise((resolve, reject) => {
@@ -2413,6 +2446,7 @@ function RoomDetail({ room, currentUser, friends, onBack, onShare, onKakaoShare,
   const [locationOverrideOpen, setLocationOverrideOpen] = useState(false)
   const [locationOverrideText, setLocationOverrideText] = useState(room.flow?.locationText || '')
   const [expandedRestaurant, setExpandedRestaurant] = useState(null)
+  const [restaurantRatings, setRestaurantRatings] = useState({})
   const [confirmDelete, setConfirmDelete] = useState(false)
   const [roomSettingsOpen, setRoomSettingsOpen] = useState(false)
   const [lobbyBudgetMin, setLobbyBudgetMin] = useState(Number(room.flow?.budgetMin ?? 8000))
@@ -2737,6 +2771,23 @@ function RoomDetail({ room, currentUser, friends, onBack, onShare, onKakaoShare,
       if (next >= 100) setHotPotatoPhase('eat')
       return next
     })
+  }
+
+  const checkRestaurantRating = async (restaurant) => {
+    if (restaurantRatings[restaurant.id]?.status === 'loading') return
+    setRestaurantRatings((current) => ({ ...current, [restaurant.id]: { status: 'loading' } }))
+    try {
+      const result = await loadRestaurantRating(restaurant)
+      const details = {
+        rating: result.rating, reviewCount: result.reviewCount, ratingCheckedAt: result.checkedAt,
+        ...(result.placeId ? { placeUrl: `https://map.naver.com/p/entry/place/${result.placeId}` } : {}),
+      }
+      setNaverRestaurants((current) => current.map((item) => item.id === restaurant.id ? { ...item, ...details } : item))
+      setSelectedRestaurant((current) => current?.id === restaurant.id ? { ...current, ...details } : current)
+      setRestaurantRatings((current) => ({ ...current, [restaurant.id]: { status: 'ready', result } }))
+    } catch (error) {
+      setRestaurantRatings((current) => ({ ...current, [restaurant.id]: { status: 'error', message: error.name === 'TimeoutError' ? '조회가 지연되고 있어요. 잠시 후 다시 확인해주세요.' : error.message } }))
+    }
   }
 
   const startConfiguredMode = async () => {
@@ -3133,8 +3184,9 @@ function RoomDetail({ room, currentUser, friends, onBack, onShare, onKakaoShare,
                       {selectedCandidate?.priceMin > 0 && <p className="restaurant-price-guide">선택 메뉴 예상 가격 · 1인 약 {selectedCandidate.priceMin.toLocaleString('ko-KR')}~{selectedCandidate.priceMax.toLocaleString('ko-KR')}원</p>}
                       {restaurant.category && <p>업종 · {restaurant.category}</p>}
                       {restaurant.phone && <p>전화 {restaurant.phone}</p>}
+                      <RestaurantRatingControl restaurant={restaurant} state={restaurantRatings[restaurant.id]} onLookup={checkRestaurantRating} />
                       <p>실제 메뉴와 가격은 네이버 지도 또는 매장에 확인해주세요.</p>
-                      <a href={`https://map.naver.com/p/search/${encodeURIComponent(restaurant.name)}`} target="_blank" rel="noreferrer">네이버 지도에서 자세히 보기 <ExternalLink size={14} /></a>
+                      <a href={restaurant.placeUrl || `https://map.naver.com/p/search/${encodeURIComponent(restaurant.name)}`} target="_blank" rel="noreferrer">네이버 지도에서 자세히 보기 <ExternalLink size={14} /></a>
                     </div>
                   )}
                 </article>
@@ -3160,6 +3212,7 @@ function RoomDetail({ room, currentUser, friends, onBack, onShare, onKakaoShare,
             <div><span>매장</span><strong>{selectedRestaurant?.name}</strong></div>
             <div><span>이동</span><strong>{selectedRestaurant?.walk}</strong></div>
           </div>
+          {selectedRestaurant && <RestaurantRatingControl restaurant={selectedRestaurant} state={restaurantRatings[selectedRestaurant.id]} onLookup={checkRestaurantRating} />}
           <button type="button" className="menu-share-button" onClick={() => onKakaoShare?.({ menu: selectedMenu, restaurant: selectedRestaurant?.name })}><MessageCircleMore size={16} /> 메뉴와 매장을 카카오톡으로 공유</button>
           <div className="finish-route-map">
             <div><Navigation size={15} /><span>현재 위치에서 매장까지</span><small>{selectedRestaurant?.distance || selectedRestaurant?.walk}</small></div>
