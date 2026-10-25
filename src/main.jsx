@@ -813,11 +813,6 @@ const shareRoomInvite = async (room, onToast, context = '') => {
 }
 
 const isRoomMemberOnline = (presence, uid) => Object.values(presence?.[uid] || {}).some((connection) => connection === true)
-const areAllRoomMembersOnline = (members, presence) => {
-  const ids = Object.keys(members || {})
-  return ids.length > 0 && ids.every((uid) => isRoomMemberOnline(presence, uid))
-}
-
 const normalizeRoom = (id, room) => {
   const memberRecords = room?.members || {}
   return {
@@ -1635,16 +1630,6 @@ function App() {
   const updateRoomFlow = async (room, patch) => {
     if (!authUser || room.ownerId !== authUser.uid) return false
     try {
-      if ([2, 3].includes(patch.stage) && Number(room.flow?.stage || 0) <= 1) {
-        const [roster, presence] = await Promise.all([
-          get(ref(database, `rooms/${room.id}/members`)),
-          get(ref(database, `roomPresence/${room.id}`)),
-        ])
-        if (!areAllRoomMembersOnline(roster.val(), presence.val())) {
-          setToast('모든 참여자가 방에 접속해야 시작할 수 있어요')
-          return false
-        }
-      }
       const now = Date.now()
       const changes = Object.fromEntries(Object.entries({ ...patch, updatedAt: now }).map(([key, value]) => [`rooms/${room.id}/flow/${key}`, value]))
       changes[`rooms/${room.id}/lastActivityAt`] = now
@@ -2147,7 +2132,7 @@ function HomeScreen({ rooms, latestRoomSelection, onGoCommunity, onOpenRoom, onG
           </div>
         </div>
         <div className="quick-grid">
-          <button type="button" onClick={onOpenJoin}><span className="quick-icon"><LogIn size={22} /></span><b>코드로 방 접속</b><small>초대 코드 입력</small></button>
+          <button type="button" onClick={onOpenJoin}><span className="quick-icon"><LogIn size={22} /></span><b><span className="quick-label-full">코드로 방 접속</span><span className="quick-label-short">코드로 참여</span></b><small>초대 코드 입력</small></button>
           <button type="button" onClick={onOpenCreate}><span className="quick-icon coral"><Plus size={23} /></span><b>방 생성하기</b><small>새 모임 만들기</small></button>
           <button type="button" onClick={onOpenTaste}><span className="quick-icon"><Coffee size={22} /></span><b>취향 설정</b><small>내 조건 관리</small></button>
         </div>
@@ -2407,7 +2392,7 @@ function useRoomPresence(roomId, uid) {
 }
 
 function MemberPresence({ online, owner = false }) {
-  return <small className={`member-presence ${online ? 'online' : 'offline'}`}><i aria-hidden="true" />{online ? '온라인' : '오프라인'}{owner && <span> · 방장</span>}</small>
+  return <small className={`member-presence ${online ? 'online' : 'offline'}`}><i aria-hidden="true" />{online ? '온라인' : '오프라인'}{owner && <span className="presence-owner"><span className="presence-owner-separator"> · </span>방장</span>}</small>
 }
 
 function DesktopRoomSummary({ room, onlineIds, onShare, onSettings }) {
@@ -2801,7 +2786,8 @@ function RoomDetail({ room, currentUser, friends, onBack, onShare, onKakaoShare,
   }
 
   const startConfiguredMode = async () => {
-    if (!isOwner || !allMembersOnline || startInFlight.current || lobbyBudgetMin < 0 || lobbyBudgetMax <= 0 || lobbyBudgetMax < lobbyBudgetMin) return
+    if (!isOwner || startInFlight.current || lobbyBudgetMin < 0 || lobbyBudgetMax <= 0 || lobbyBudgetMax < lobbyBudgetMin) return
+    if (!allMembersOnline && !window.confirm('오프라인인 인원이 있는데 시작하시겠습니까?')) return
     startInFlight.current = true
     setStarting(true)
     try {
@@ -2958,8 +2944,8 @@ function RoomDetail({ room, currentUser, friends, onBack, onShare, onKakaoShare,
             {isOwner && <button type="button" disabled={starting || lobbyBudgetMin < 0 || lobbyBudgetMax <= 0 || lobbyBudgetMax < lobbyBudgetMin} onClick={() => changeRoomBudget(lobbyBudgetMin, lobbyBudgetMax)}>예산 저장</button>}
           </div>
           <section className="lobby-ready-card">
-            <div><UsersRound size={20} /><span><strong>{presence.error ? '접속 상태를 확인하지 못했어요' : !presence.ready || !presence.connected ? '참여자 접속 확인 중…' : allMembersOnline ? `${memberEntries.length}명 모두 온라인이에요` : `${onlineIds.size}/${memberEntries.length}명 온라인`}</strong><small>{presence.error ? '연결을 확인한 뒤 다시 방에 접속해주세요.' : !allMembersOnline ? '모든 참여자가 이 방에 접속하면 시작할 수 있어요.' : isOwner ? '선택한 모드로 바로 시작해요. 변경한 예산도 함께 저장돼요.' : '방장이 선택한 모드로 시작하기를 기다려주세요.'}</small></span></div>
-            <button type="button" className="room-primary-button" disabled={!isOwner || !allMembersOnline || starting || lobbyBudgetMin < 0 || lobbyBudgetMax <= 0 || lobbyBudgetMax < lobbyBudgetMin} onClick={startConfiguredMode}>{starting ? <span className="mini-spinner" /> : <Play size={18} fill="currentColor" />} {starting ? '시작하는 중…' : !isOwner ? '방장이 시작하기를 기다리는 중' : !allMembersOnline ? '모두 접속하면 시작할 수 있어요' : '시작하기'}</button>
+            <div><UsersRound size={20} /><span><strong>{presence.error ? '접속 상태를 확인하지 못했어요' : !presence.ready || !presence.connected ? '참여자 접속 확인 중…' : allMembersOnline ? `${memberEntries.length}명 모두 온라인이에요` : `${onlineIds.size}/${memberEntries.length}명 온라인`}</strong><small>{!isOwner ? '방장이 시작하기를 기다려주세요.' : !allMembersOnline ? '오프라인으로 표시된 사람이 있어도 확인 후 시작할 수 있어요.' : '선택한 모드로 바로 시작해요. 변경한 예산도 함께 저장돼요.'}</small></span></div>
+            <button type="button" className="room-primary-button" disabled={!isOwner || starting || lobbyBudgetMin < 0 || lobbyBudgetMax <= 0 || lobbyBudgetMax < lobbyBudgetMin} onClick={startConfiguredMode}>{starting ? <span className="mini-spinner" /> : <Play size={18} fill="currentColor" />} {starting ? '시작하는 중…' : !isOwner ? '방장이 시작하기를 기다리는 중' : '시작하기'}</button>
           </section>
           <div className="lobby-invite-actions">
             <button type="button" className="share-wide secondary-share" onClick={onShare}><QrCode size={19} /> 초대 코드 보기</button>
