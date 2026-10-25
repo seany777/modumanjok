@@ -1259,6 +1259,60 @@ button:focus-visible, input:focus-visible, textarea:focus-visible {
 :root[data-theme="dark"] .hot-potato-arena { border-color: #513428; background: linear-gradient(160deg, #352219, #241812); }
 :root[data-theme="dark"] .hot-potato-waiting { background: #302019; }
 
+/* Keep action controls readable in dark mode.  These controls previously
+   inherited the light-theme white surface, which made labels disappear. */
+:root[data-theme="dark"] :is(.room-primary-button, .sheet-submit) {
+  border: 1px solid #ff7847;
+  background: linear-gradient(135deg, #f06a3b 0%, #c94422 100%);
+  color: #fff;
+  box-shadow: 0 9px 22px rgba(0, 0, 0, .28);
+}
+:root[data-theme="dark"] :is(.room-primary-button, .sheet-submit):disabled {
+  border-color: #5a4032;
+  background: #3a2922;
+  color: #bda99d;
+  opacity: .72;
+}
+:root[data-theme="dark"] .budget-save-button {
+  border: 1px solid #ff7847;
+  background: linear-gradient(135deg, #f06a3b 0%, #c94422 100%);
+  color: #fff;
+  box-shadow: 0 7px 17px rgba(0, 0, 0, .22);
+}
+:root[data-theme="dark"] .budget-save-button:disabled {
+  border-color: #5a4032;
+  background: #3a2922;
+  color: #bda99d;
+}
+:root[data-theme="dark"] .secondary-submit,
+:root[data-theme="dark"] .secondary-share {
+  border-color: #6b4635;
+  background: #302019;
+  color: #ffb293;
+}
+:root[data-theme="dark"] .placeholder-card {
+  border-color: #604333;
+  background: linear-gradient(145deg, #302019 0%, #211510 100%);
+  color: var(--ink);
+  box-shadow: 0 14px 34px rgba(0, 0, 0, .24);
+}
+:root[data-theme="dark"] .placeholder-card > span {
+  background: #4a2a1e;
+  color: #ff986d;
+}
+:root[data-theme="dark"] .placeholder-card p {
+  color: #d1b8aa;
+}
+:root[data-theme="dark"] .restaurant-main {
+  color: var(--ink);
+}
+:root[data-theme="dark"] .restaurant-details {
+  border-color: var(--line);
+}
+:root[data-theme="dark"] .restaurant-details a {
+  color: #ff986d;
+}
+
 @keyframes warm-page-in {
   from { opacity: 0; }
   to { opacity: 1; }
