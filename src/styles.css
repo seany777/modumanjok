@@ -257,6 +257,8 @@ button:focus-visible, input:focus-visible { outline: 3px solid rgba(22, 35, 30, 
 .candidate-copy { min-width: 0; display: flex; flex-direction: column; gap: 4px; }
 .candidate-copy b { font-size: 13px; }
 .candidate-copy small { color: var(--muted); font-size: 8px; line-height: 1.4; }
+.candidate-reasons { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 2px; }
+.candidate-reasons em { padding: 3px 5px; border-radius: 99px; background: var(--accent-soft); color: var(--accent-strong); font-size: 7px; font-style: normal; font-weight: 800; line-height: 1.2; }
 .match-score { display: flex; flex-direction: column; align-items: flex-end; font-size: 12px; font-weight: 900; }
 .match-score small { color: var(--muted); font-size: 7px; font-weight: 700; }
 .prototype-note { display: flex; align-items: flex-start; gap: 5px; margin: 11px 2px 0; color: var(--muted); font-size: 8px; line-height: 1.5; }
@@ -1259,6 +1261,32 @@ button:focus-visible, input:focus-visible, textarea:focus-visible {
 :root[data-theme="dark"] .hot-potato-arena { border-color: #513428; background: linear-gradient(160deg, #352219, #241812); }
 :root[data-theme="dark"] .hot-potato-waiting { background: #302019; }
 
+/* Dark-mode surfaces that are easy to miss because they are shared by
+   overlays, sheets and small utility controls. */
+:root[data-theme="dark"] .modal-close {
+  background: #34231b;
+  color: #fff7f1;
+  border: 1px solid #5a4032;
+}
+:root[data-theme="dark"] .sheet-handle { background: #785849; }
+:root[data-theme="dark"] .field-label { color: #d8c3b6; }
+:root[data-theme="dark"] .friend-add-row input,
+:root[data-theme="dark"] .photo-change-button { background: #2a1e18; color: var(--ink); }
+:root[data-theme="dark"] .delete-confirm { border: 1px solid #5a4032; }
+:root[data-theme="dark"] .delete-confirm button { background: #3b2921; color: #fff7f1; }
+:root[data-theme="dark"] .delete-confirm button + button { background: #2a1e18; color: #d8c3b6; }
+:root[data-theme="dark"] .room-danger-actions button { background: #3b2921; color: #fff7f1; }
+:root[data-theme="dark"] .room-danger-actions .delete-room-button { background: #8f332f; }
+:root[data-theme="dark"] .restaurant-card.selected { border-color: var(--accent); }
+:root[data-theme="dark"] .finish-summary,
+:root[data-theme="dark"] .finish-summary > div { border-color: var(--line); }
+:root[data-theme="dark"] .finish-transfer-button { border-color: #6b4635; color: var(--ink); }
+:root[data-theme="dark"] .data-range-note strong { color: #ffb293; }
+:root[data-theme="dark"] .map-placeholder.error,
+:root[data-theme="dark"] .restaurant-empty.error { color: #ffb0a3; }
+:root[data-theme="dark"] .restaurant-empty { background: #211611; }
+:root[data-theme="dark"] .tournament-food-image { background-color: #302019; }
+
 /* Keep action controls readable in dark mode.  These controls previously
    inherited the light-theme white surface, which made labels disappear. */
 :root[data-theme="dark"] :is(.room-primary-button, .sheet-submit) {
@@ -1311,6 +1339,52 @@ button:focus-visible, input:focus-visible, textarea:focus-visible {
 }
 :root[data-theme="dark"] .restaurant-details a {
   color: #ff986d;
+}
+
+/* Desktop web layout: keep the app inside the viewport and let only the
+   current content area scroll. Mobile keeps the original full-screen frame. */
+@media (min-width: 761px) {
+  html, body, #root { height: 100%; }
+  body { overflow: hidden; }
+  .site-shell {
+    height: 100vh;
+    min-height: 0;
+    grid-template-columns: minmax(0, 960px);
+    padding: 24px 40px;
+  }
+  .app-frame {
+    width: 100%;
+    max-width: 960px;
+    height: 100%;
+    min-height: 0;
+    border-radius: 28px;
+  }
+  .page { padding-left: 48px; padding-right: 48px; }
+  .page > .top-header,
+  .page > .hero-card,
+  .page > .home-ad-wrap,
+  .page > .section-block,
+  .page > .placeholder-card,
+  .page > .profile-card,
+  .page > .profile-section,
+  .page > .settings-section,
+  .room-flow-page > .room-stage-motion {
+    width: min(100%, 840px);
+    margin-left: auto;
+    margin-right: auto;
+  }
+  .rooms-screen { width: min(100%, 840px); margin: 0 auto; }
+  .rooms-fixed-area { padding-left: 0; padding-right: 0; }
+  .room-flow-page > .top-header { width: min(100%, 840px); margin-left: auto; margin-right: auto; }
+  .room-stage-section { max-width: 840px; }
+  .tournament-pair { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 18px; }
+  .tournament-pair button { min-height: 285px; }
+  .tournament-food-image { aspect-ratio: 1 / .68; }
+  .quick-grid { gap: 14px; }
+  .quick-grid button { min-height: 148px; padding: 19px 17px; }
+  .home-ad-card { min-height: 250px; padding: 31px 28px; }
+  .home-ad-card h2 { font-size: 28px; }
+  .bottom-nav { left: 50%; right: auto; width: min(100%, 840px); transform: translateX(-50%); }
 }
 
 @keyframes warm-page-in {

@@ -64,6 +64,10 @@ const roomModeLabels = {
   competition: 'Hot Potato 먹기 도전',
 }
 
+// 메뉴 취향/추천 목록에서 제외할 항목입니다. 조리 방식이나 알레르기
+// 카테고리(예: 튀김, 난류)는 유지하고, 실제 메뉴 이름만 제거합니다.
+const removedMenuNames = new Set(`볶음밥 미역국 순대 김치전 파전 닭죽 죽 북경오리 딤섬 반미 나시고랭 미고랭 카오팟 난 탄두리치킨 비리야니 케밥 팔라펠 샤와르마 타코야키 야키소바 야키토리 스키야키 나베 오뎅 오니기리 튀김 가라아게 샌드위치 핫도그 샐러드 브런치 팬케이크 와플 토스트 베이글 부리토 타코 퀘사디아 나초 닭강정 립 수프 클램차우더 피쉬앤칩스 파에야 슈니첼 소시지 학센 그라탱 오믈렛 에그베네딕트 크레페 포케 닭발 랍스터 곰장어 어묵 주먹밥 묵밥 닭꼬치`.split(/\s+/))
+
 const tournamentMenus = [
   '제육볶음', '라멘', '피자', '마라탕',
   '김치찌개', '비빔밥', '돈까스', '초밥',
@@ -73,7 +77,7 @@ const tournamentMenus = [
   '칼국수', '닭갈비', '부대찌개', '짜장면',
   '짬뽕', '탕수육', '우동',
   '오므라이스', '회덮밥', '샌드위치', '케밥',
-]
+].filter((menu) => !removedMenuNames.has(menu))
 
 const tournamentMenuImages = {
   '제육볶음': 'https://images.unsplash.com/photo-1547592180-85f173990554?auto=format&fit=crop&w=640&q=78',
@@ -94,7 +98,20 @@ const tournamentMenuImages = {
   '냉면': 'https://images.unsplash.com/photo-1553163147-622ab57be1c7?auto=format&fit=crop&w=640&q=78',
 }
 
-const getTournamentMenuImage = (menu) => `https://loremflickr.com/640/480/${encodeURIComponent(menu)},food?lock=${seededMenuValue(`tournament-image-${menu}`)}`
+// Keep tournament images local and deterministic. Remote random-image URLs
+// could return an unrelated dish (or fail in deployed browsers), leaving the
+// two choices as blank gray tiles.
+const tournamentMenuImageFiles = Object.keys(tournamentMenuImages).reduce((files, menu) => {
+  files[menu] = `/assets/menu-images/${menu}.jpg`
+  return files
+}, {})
+Object.assign(tournamentMenuImageFiles, {
+  '순두부찌개': '/assets/menu-images/순두부찌개.jpg',
+  '난': '/assets/menu-images/난.jpg',
+  '불고기': '/assets/menu-images/불고기.jpg',
+  '칼국수': '/assets/menu-images/칼국수.jpg',
+})
+const getTournamentMenuImage = (menu) => tournamentMenuImageFiles[menu] || '/assets/menu-images/food-generic.jpg'
 
 const baseMenuPreferenceCatalog = [
   { name: '제육볶음', cuisine: ['한식'], form: ['밥류', '고기류'], cooking: ['볶음'], risks: ['돼지고기', '대두(콩류)', '밀'] },
@@ -130,7 +147,7 @@ const baseMenuPreferenceCatalog = [
   { name: '케밥', cuisine: ['인도·중동 음식'], form: ['빵류', '고기류'], cooking: ['구이'], risks: ['밀', '우유', '쇠고기'] },
 ]
 
-const expandedMenuNames = `김치찌개 된장찌개 부대찌개 순두부찌개 비빔밥 불고기 삼겹살 갈비 갈비탕 설렁탕 곰탕 삼계탕 감자탕 해장국 냉면 칼국수 수제비 순대국 돼지국밥 김밥 떡볶이 라볶이 쫄면 잔치국수 비빔국수 막국수 콩국수 닭갈비 찜닭 닭볶음탕 치킨 보쌈 족발 곱창 막창 낙지볶음 쭈꾸미볶음 아구찜 해물찜 생선구이 제육볶음 오삼불고기 두루치기 김치볶음밥 볶음밥 오므라이스 육개장 추어탕 미역국 청국장 순대 김치전 파전 갈비찜 닭죽 전복죽 죽 한정식 백반 쌈밥 간장게장 매운탕 동태찌개 대구탕 알탕 곤드레밥 짜장면 짬뽕 탕수육 마파두부 깐풍기 양꼬치 마라탕 마라샹궈 훠궈 꿔바로우 딤섬 만두 양장피 유산슬 라조기 북경오리 쌀국수 월남쌈 반미 분짜 팟타이 나시고랭 미고랭 똠얌꿍 카오팟 푸팟퐁커리 커리 난 탄두리치킨 비리야니 케밥 팔라펠 샤와르마 라멘 우동 소바 돈가스 초밥 회 규동 가츠동 텐동 장어덮밥 카레라이스 오코노미야키 타코야키 야키소바 야키토리 샤브샤브 스키야키 나베 오뎅 오니기리 튀김 가라아게 함박스테이크 피자 파스타 스파게티 리조또 라자냐 뇨끼 스테이크 햄버거 샌드위치 핫도그 샐러드 브런치 팬케이크 와플 토스트 베이글 부리토 타코 퀘사디아 나초 치킨윙 닭강정 바비큐 립 수프 클램차우더 피쉬앤칩스 파에야 감바스 슈니첼 소시지 학센 그라탱 오믈렛 에그베네딕트 크레페 포케 닭발 오리구이 오리백숙 장어구이 조개구이 대게 랍스터 해물탕 회덮밥 물회 곰장어 갈치조림 코다리조림 소고기구이 곱창전골 전골 닭한마리 닭곰탕 쪽갈비 육회 떡국 만둣국 콩나물국밥 라면 어묵 주먹밥 떡갈비 김치말이국수 묵밥 두부김치 보리밥 낙곱새 간짜장 울면 짬뽕밥 볶음우동 샤브칼국수 규카츠 야키니쿠 닭꼬치 오징어볶음`.split(/\s+/)
+const expandedMenuNames = `김치찌개 된장찌개 부대찌개 순두부찌개 비빔밥 불고기 삼겹살 갈비 갈비탕 설렁탕 곰탕 삼계탕 감자탕 해장국 냉면 칼국수 수제비 순대국 돼지국밥 김밥 떡볶이 라볶이 쫄면 잔치국수 비빔국수 막국수 콩국수 닭갈비 찜닭 닭볶음탕 치킨 보쌈 족발 곱창 막창 낙지볶음 쭈꾸미볶음 아구찜 해물찜 생선구이 제육볶음 오삼불고기 두루치기 김치볶음밥 볶음밥 오므라이스 육개장 추어탕 미역국 청국장 순대 김치전 파전 갈비찜 닭죽 전복죽 죽 한정식 백반 쌈밥 간장게장 매운탕 동태찌개 대구탕 알탕 곤드레밥 짜장면 짬뽕 탕수육 마파두부 깐풍기 양꼬치 마라탕 마라샹궈 훠궈 꿔바로우 딤섬 만두 양장피 유산슬 라조기 북경오리 쌀국수 월남쌈 반미 분짜 팟타이 나시고랭 미고랭 똠얌꿍 카오팟 푸팟퐁커리 커리 난 탄두리치킨 비리야니 케밥 팔라펠 샤와르마 라멘 우동 소바 돈가스 초밥 회 규동 가츠동 텐동 장어덮밥 카레라이스 오코노미야키 타코야키 야키소바 야키토리 샤브샤브 스키야키 나베 오뎅 오니기리 튀김 가라아게 함박스테이크 피자 파스타 스파게티 리조또 라자냐 뇨끼 스테이크 햄버거 샌드위치 핫도그 샐러드 브런치 팬케이크 와플 토스트 베이글 부리토 타코 퀘사디아 나초 치킨윙 닭강정 바비큐 립 수프 클램차우더 피쉬앤칩스 파에야 감바스 슈니첼 소시지 학센 그라탱 오믈렛 에그베네딕트 크레페 포케 닭발 오리구이 오리백숙 장어구이 조개구이 대게 랍스터 해물탕 회덮밥 물회 곰장어 갈치조림 코다리조림 소고기구이 곱창전골 전골 닭한마리 닭곰탕 쪽갈비 육회 떡국 만둣국 콩나물국밥 라면 어묵 주먹밥 떡갈비 김치말이국수 묵밥 두부김치 보리밥 낙곱새 간짜장 울면 짬뽕밥 볶음우동 샤브칼국수 규카츠 야키니쿠 닭꼬치 오징어볶음`.split(/\s+/).filter((name) => !removedMenuNames.has(name))
 
 const inferExpandedMenu = (name) => {
   const n = name.toLowerCase()
@@ -161,7 +178,7 @@ const inferExpandedMenu = (name) => {
 }
 
 const expandedMenuCatalog = expandedMenuNames.filter((name, index, list) => !baseMenuPreferenceCatalog.some((menu) => menu.name === name) && list.indexOf(name) === index).map(inferExpandedMenu)
-const menuPreferenceCatalog = [...baseMenuPreferenceCatalog, ...expandedMenuCatalog]
+const menuPreferenceCatalog = [...baseMenuPreferenceCatalog, ...expandedMenuCatalog].filter((menu) => !removedMenuNames.has(menu.name))
 
 const baseMenuPriceRanges = {
   '제육볶음': [9000, 14000], '라멘': [9000, 15000], '피자': [9000, 18000], '마라탕': [10000, 18000],
@@ -247,6 +264,7 @@ function makePreferenceCandidates(memberRecords, budgetMin = 0, budgetMax = 0) {
     const blockedBy = []
     let preferenceScore = 0
     let matchedMembers = 0
+    let blockedMembers = 0
     let recentMatchCount = 0
     preferences.forEach((profile) => {
       const blocked = [...(profile.allergies || []), ...(profile.avoided || [])].filter((item) => {
@@ -254,6 +272,7 @@ function makePreferenceCandidates(memberRecords, budgetMin = 0, budgetMax = 0) {
         return normalized && menuTerms.some((term) => term.includes(normalized) || normalized.includes(term))
       })
       if (blocked.length) {
+        blockedMembers += 1
         blockedBy.push(...blocked)
         return
       }
@@ -291,6 +310,13 @@ function makePreferenceCandidates(memberRecords, budgetMin = 0, budgetMax = 0) {
       priceMin,
       priceMax,
       score: Math.max(35, Math.min(98, Math.round(62 + preferenceScore / total + (matchedMembers / total) * 8 - recentMenuPenalty - budgetPenalty))),
+      matchedMembers,
+      totalMembers: total,
+      fitReasons: [
+        budgetMismatch ? '예산 근접' : '예산 적합',
+        blockedMembers === 0 ? '전원 알레르기 제외' : `${total - blockedMembers}명 알레르기 제외`,
+        ...(preferences.length ? [`${total}명 중 ${matchedMembers}명 선호`] : []),
+      ],
       reason: preferences.length
         ? `${preferences.length}명 취향 반영 · 약 ${priceMin.toLocaleString('ko-KR')}~${priceMax.toLocaleString('ko-KR')}원${budgetMismatch ? ' · 예산 근접 후보' : ''}${recentMatchCount ? ` · 최근 식사 ${recentMatchCount}명 중복 감점` : ''}`
         : `예상 가격 약 ${priceMin.toLocaleString('ko-KR')}~${priceMax.toLocaleString('ko-KR')}원`,
@@ -310,6 +336,10 @@ function makePreferenceCandidates(memberRecords, budgetMin = 0, budgetMax = 0) {
         ...menu,
         score: 68,
         fallback: true,
+        fitReasons: [
+          '알레르기 조건 우선',
+          ...(preferences.length ? [`${total}명 중 0명 직접 선호`] : []),
+        ],
         reason: '알레르기 조건을 우선한 대체 후보 · 주문 전 매장 확인 필수',
       }))
       .sort(() => Math.random() - .5)
@@ -979,6 +1009,23 @@ function App() {
           .map(([roomId, room]) => normalizeRoom(roomId, room))
           .sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0))
         setRooms(nextRooms)
+        // Reclaim rooms that have not changed for roughly three months. Only
+        // the owner performs this cleanup, so a regular member can never
+        // remove another person's room. Older records without a timestamp are
+        // left untouched until they receive an activity timestamp.
+        const staleCutoff = Date.now() - (90 * 24 * 60 * 60 * 1000)
+        const staleOwnedRooms = Object.entries(snapshot.val() || {}).filter(([, room]) => {
+          const lastActivity = Number(room?.lastActivityAt || room?.flow?.updatedAt || room?.createdAt || 0)
+          return room?.ownerId === authUser.uid && lastActivity > 0 && lastActivity < staleCutoff
+        })
+        if (staleOwnedRooms.length) {
+          const cleanup = {}
+          staleOwnedRooms.forEach(([roomId, room]) => {
+            cleanup[`rooms/${roomId}`] = null
+            Object.keys(room?.members || {}).forEach((uid) => { cleanup[`userRooms/${uid}/${roomId}`] = null })
+          })
+          update(ref(database), cleanup).catch((error) => console.warn('Stale room cleanup skipped:', error))
+        }
         setRoomsLoadStatus('ready')
         setRoomsLoadError('')
       } catch (error) {
@@ -1161,6 +1208,7 @@ function App() {
       status: '방금 생성',
       color: roomColors[rooms.length % roomColors.length],
       createdAt: Date.now(),
+      lastActivityAt: Date.now(),
       members: {
         [authUser.uid]: {
           name: userProfile.name,
@@ -1185,6 +1233,7 @@ function App() {
       await update(ref(database), {
         [`rooms/${roomId}`]: roomData,
         [`userRooms/${authUser.uid}/${roomId}`]: true,
+        [`rooms/${roomId}/lastActivityAt`]: Date.now(),
       })
       setSheet(null)
       openRoom(normalizeRoom(roomId, roomData))
@@ -1219,6 +1268,7 @@ function App() {
           joinedAt: Date.now(),
         },
         [`userRooms/${authUser.uid}/${roomId}`]: true,
+        [`rooms/${roomId}/lastActivityAt`]: Date.now(),
       })
       setSheet(null)
       setPendingJoinCode('')
@@ -1270,6 +1320,7 @@ function App() {
       [`rooms/${room.id}/flow/hotPotatoSessionId`]: null,
       [`rooms/${room.id}/flow/completedAt`]: null,
       [`rooms/${room.id}/flow/updatedAt`]: Date.now(),
+      [`rooms/${room.id}/lastActivityAt`]: Date.now(),
       [`rooms/${room.id}/tournamentVotes`]: null,
       [`rooms/${room.id}/hotPotatoChoice`]: null,
     }
@@ -1298,6 +1349,7 @@ function App() {
       changes[`rooms/${room.id}/ownerName`] = room.memberRecords[nextOwnerId]?.name || '새 방장'
       changes[`rooms/${room.id}/members/${nextOwnerId}/role`] = 'owner'
     }
+    changes[`rooms/${room.id}/lastActivityAt`] = Date.now()
     try {
       await update(ref(database), changes)
       window.history.replaceState({}, '', '/rooms')
@@ -1319,6 +1371,7 @@ function App() {
         [`rooms/${room.id}/ownerName`]: room.memberRecords[nextOwnerId]?.name || '새 방장',
         [`rooms/${room.id}/members/${authUser.uid}/role`]: 'member',
         [`rooms/${room.id}/members/${nextOwnerId}/role`]: 'owner',
+        [`rooms/${room.id}/lastActivityAt`]: Date.now(),
       })
       setToast('방장을 양도했어요')
     } catch (error) {
@@ -1398,6 +1451,7 @@ function App() {
           joinedAt: Date.now(),
         },
         [`userRooms/${friend.uid}/${room.id}`]: true,
+        [`rooms/${room.id}/lastActivityAt`]: Date.now(),
       })
       setToast(`${friend.name}님을 방에 초대했어요`)
     } catch (error) {
@@ -1409,10 +1463,10 @@ function App() {
   const updateRoomFlow = async (room, patch) => {
     if (!authUser || room.ownerId !== authUser.uid) return false
     try {
-      await update(ref(database, `rooms/${room.id}/flow`), {
-        ...patch,
-        updatedAt: Date.now(),
-      })
+      const now = Date.now()
+      const changes = Object.fromEntries(Object.entries({ ...patch, updatedAt: now }).map(([key, value]) => [`rooms/${room.id}/flow/${key}`, value]))
+      changes[`rooms/${room.id}/lastActivityAt`] = now
+      await update(ref(database), changes)
       return true
     } catch (error) {
       console.error('Room flow sync failed:', error)
@@ -2603,7 +2657,7 @@ function RoomDetail({ room, currentUser, friends, onBack, onShare, onDelete, onL
             {menuCandidates.map((menu, index) => (
               <button key={menu.name} type="button" disabled={menu.unavailable} className={selectedMenu === menu.name ? 'selected' : ''} onClick={() => setSelectedMenu(menu.name)}>
                 <span className="menu-rank">{index + 1}</span>
-                <span className="candidate-copy"><b>{menu.name}</b><small>{menu.reason}</small></span>
+                <span className="candidate-copy"><b>{menu.name}</b><small>{menu.reason}</small><span className="candidate-reasons">{(menu.fitReasons || []).map((reason) => <em key={reason}>{reason}</em>)}</span></span>
                 <span className="match-score">{menu.score}%<small>일치</small></span>
               </button>
             ))}
@@ -3279,13 +3333,18 @@ function ActionSheet({ type, initialCode = '', onClose, onCreate, onJoin }) {
           <input
             autoFocus
             value={isCreate ? roomName : code}
-            onChange={(event) => isCreate ? setRoomName(event.target.value) : setCode(event.target.value)}
+            maxLength={isCreate ? undefined : 6}
+            onChange={(event) => isCreate
+              ? setRoomName(event.target.value)
+              : setCode(event.target.value.replace(/[^a-zA-Z0-9]/g, '').toUpperCase().slice(0, 6))}
             placeholder={isCreate ? '예: 금요일 저녁팟' : '예: A1B2C3'}
           />
         </label>
-        <button type="button" className="sheet-submit" disabled={isCreate ? !roomName.trim() : !code.trim()} onClick={() => isCreate ? onCreate(roomName) : onJoin(code)}>
-          {isCreate ? '방 만들기' : '접속하기'}
-        </button>
+        {(isCreate || code.trim().length === 6) && (
+          <button type="button" className="sheet-submit" disabled={isCreate ? !roomName.trim() : false} onClick={() => isCreate ? onCreate(roomName) : onJoin(code)}>
+            {isCreate ? '방 만들기' : '접속하기'}
+          </button>
+        )}
       </section>
     </div>
   )
