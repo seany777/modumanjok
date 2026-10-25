@@ -1998,7 +1998,8 @@ button:focus-visible, input:focus-visible, textarea:focus-visible {
     background: var(--card);
   }
   .home-page > .home-community-section { grid-column: 2; grid-row: 3; align-self: start; margin-top: 0; }
-  .home-community-section > .section-heading { padding-inline: 22px; }
+  .home-community-section > .section-heading,
+  .home-page > .section-block.compact > .section-heading { padding-inline: 22px; }
   .home-community-card { min-height: 148px; }
   .home-page .home-ad-card { min-height: 270px; padding: 26px 24px 42px; }
   .home-page .home-ad-card h2 { font-size: 27px; }
