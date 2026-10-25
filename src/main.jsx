@@ -122,8 +122,47 @@ Object.assign(tournamentMenuImageFiles, {
   '난': '/assets/menu-images/난.jpg',
   '불고기': '/assets/menu-images/불고기.jpg',
   '칼국수': '/assets/menu-images/칼국수.jpg',
+  '샤브칼국수': '/assets/menu-images/샤브칼국수.jpg',
+  '김치볶음밥': '/assets/menu-images/김치볶음밥.jpg',
+  '김밥': '/assets/menu-images/김밥.jpg',
+  '족발': '/assets/menu-images/족발.jpg',
+  '보쌈': '/assets/menu-images/보쌈.jpg',
+  '순대국': '/assets/menu-images/순대국.jpg',
+  '닭갈비': '/assets/menu-images/닭갈비.jpg',
+  '부대찌개': '/assets/menu-images/부대찌개.jpg',
+  '짜장면': '/assets/menu-images/짜장면.jpg',
+  '짬뽕': '/assets/menu-images/짬뽕.jpg',
+  '탕수육': '/assets/menu-images/탕수육.jpg',
+  '우동': '/assets/menu-images/우동.jpg',
+  '오므라이스': '/assets/menu-images/오므라이스.jpg',
+  '회덮밥': '/assets/menu-images/회덮밥.jpg',
+  '닭강정': '/assets/menu-images/닭강정.jpg',
 })
-const getTournamentMenuImage = (menu) => tournamentMenuImageFiles[menu] || '/assets/menu-images/food-generic.jpg'
+// The preference catalog contains many more dishes than the hand-picked
+// tournament set. Use a semantic local fallback instead of showing the same
+// generic photo for every newly added dish.
+const getTournamentMenuImage = (menu = '') => {
+  if (tournamentMenuImageFiles[menu]) return tournamentMenuImageFiles[menu]
+  const fallbackRules = [
+    [/김밥/, '김밥'],
+    [/짜장/, '짜장면'],
+    [/짬뽕/, '짬뽕'],
+    [/피자/, '피자'],
+    [/파스타|스파게티|리조또|라자냐|뇨끼/, '파스타'],
+    [/치킨|닭|가라아게|야키토리/, '치킨'],
+    [/돈까스|돈가스|규카츠|가츠|탕수육|튀김/, '돈까스'],
+    [/족발|보쌈|불고기|제육|갈비|곱창|막창|고기|스테이크|소시지/, '불고기'],
+    [/찌개|국|탕|전골|수프|죽/, '김치찌개'],
+    [/면|국수|라면|우동|소바|냉면/, '칼국수'],
+    [/밥|덮밥|비빔밥|볶음밥|오므라이스|리조또/, '비빔밥'],
+    [/초밥|회|해산물|생선|해물|낙지|쭈꾸미|게|새우|랍스터/, '초밥'],
+    [/떡볶이|순대|분식/, '떡볶이'],
+  ]
+  const matched = fallbackRules.find(([pattern]) => pattern.test(menu))
+  return matched
+    ? `/assets/menu-images/${matched[1]}.jpg`
+    : '/assets/menu-images/food-generic.jpg'
+}
 
 const baseMenuPreferenceCatalog = [
   { name: '제육볶음', cuisine: ['한식'], form: ['밥류', '고기류'], cooking: ['볶음'], risks: ['돼지고기', '대두(콩류)', '밀'] },

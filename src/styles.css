@@ -721,6 +721,143 @@ button:focus-visible, input:focus-visible { outline: 3px solid rgba(22, 35, 30, 
   .room-stage-motion.forward, .room-stage-motion.backward { animation: none; }
 }
 
+/* Readability pass: keep supporting copy legible without changing the layout. */
+.app-frame :is(p, small, label, button, input, textarea, a, li, em) {
+  font-size: 12px;
+}
+.app-frame :is(
+  .eyebrow,
+  .section-kicker,
+  .home-ad-card > span,
+  .home-ad-card p,
+  .home-ad-card button,
+  .status-badge,
+  .room-status,
+  .room-load-status,
+  .room-list-heading,
+  .room-meta,
+  .member-row p,
+  .avatars > span,
+  .rooms-footer-note,
+  .bottom-nav button,
+  .detail-members,
+  .lobby-member-grid > div > span,
+  .lobby-member-grid strong,
+  .room-stage-copy > span,
+  .menu-rank,
+  .candidate-reasons em,
+  .match-score,
+  .prototype-note,
+  .tournament-head,
+  .roulette-label,
+  .roulette-guide,
+  .configured-mode-card em,
+  .change-mode-button,
+  .hot-potato-intro ol,
+  .location-line,
+  .location-line small,
+  .location-override-button,
+  .map-placeholder,
+  .data-range-note,
+  .restaurant-empty,
+  .restaurant-order,
+  .finish-summary span,
+  .finish-summary strong,
+  .finish-route-map > div:first-child,
+  .finish-route-map > div:first-child small,
+  .finish-route-map > a,
+  .delete-confirm,
+  .finish-transfer-button,
+  .room-undo-button,
+  .room-pull-indicator,
+  .modal-kicker,
+  .hold-tip,
+  .room-budget-setting > p,
+  .budget-range-inputs label > span,
+  .budget-range-inputs em,
+  .budget-save-button,
+  .room-mode-setting > p,
+  .room-mode-setting button > span,
+  .room-mode-setting button b,
+  .room-location-setting > p,
+  .location-choice-buttons button,
+  .owner-transfer-block > p,
+  .member-choice-list button > span,
+  .member-choice-list button b,
+  .member-manage-block > p,
+  .member-manage-list > div > span,
+  .member-manage-list b,
+  .member-manage-list button,
+  .kakao-share-button,
+  .menu-share-button,
+  .room-danger-actions button,
+  .friend-add-row > button,
+  .friend-list b,
+  .friend-list button,
+  .empty-friend-list,
+  .profile-identity > span,
+  .profile-identity p,
+  .edit-profile-button,
+  .section-edit,
+  .stat-overview span,
+  .food-stat-name,
+  .food-stat-row strong,
+  .allergy-note,
+  .history-order,
+  .menu-record-copy span,
+  .menu-bar-item > strong,
+  .menu-bar-item small,
+  .simple-history-item > span,
+  .settings-section-title > span,
+  .privacy-coming-soon em,
+  .visibility-selector button,
+  .photo-change-button,
+  .chip-group > strong,
+  .chip-group button,
+  .subjective-field > strong,
+  .splash-ad-kicker,
+  .splash-ad small,
+  .onboarding-head small,
+  .onboarding-head p,
+  .onboarding-choice > small,
+  .onboarding-choice button,
+  .guest-name-chip span,
+  .guest-name-chip small
+) {
+  font-size: 12px;
+}
+
+/* Softer depth: preserve hierarchy while removing the heavy glow around cards and actions. */
+:root {
+  --warm-shadow: 0 8px 22px rgba(113, 65, 34, .07);
+  --warm-shadow-hover: 0 11px 26px rgba(113, 65, 34, .11);
+}
+.app-frame,
+.login-visual > span,
+.login-visual > div svg,
+.plate,
+.food-orbit,
+.recent-room,
+.mode-card.selected,
+.roulette-wheel,
+.roulette-center,
+.configured-mode-card,
+.hot-potato-intro,
+.hot-potato-arena,
+.modal-card,
+.toast,
+.profile-photo {
+  box-shadow: 0 7px 22px rgba(55, 35, 24, .09);
+}
+.app-frame { box-shadow: 0 18px 42px rgba(0, 0, 0, .09); }
+.room-undo-button,
+.room-pull-indicator { box-shadow: 0 5px 16px rgba(0, 0, 0, .09); }
+.home-ad-carousel { box-shadow: var(--warm-shadow); }
+
+@media (max-width: 760px) {
+  .app-frame { box-shadow: none; }
+}
+
 @media (max-width: 760px) {
   html, body, #root { height: 100%; overflow: hidden; }
   body { background: var(--paper); }
@@ -1462,4 +1599,151 @@ button:focus-visible, input:focus-visible, textarea:focus-visible {
     transition-duration: .01ms !important;
   }
   .splash-page.leaving { opacity: 1; transform: none; }
+}
+
+/* --------------------------------------------------------------------------
+   Final readability and depth pass
+   Keep all visible UI copy at 12px or larger and make the warm shadows subtle.
+   -------------------------------------------------------------------------- */
+.app-frame p { font-size: 13px; }
+.app-frame small,
+.app-frame label,
+.app-frame a,
+.app-frame li,
+.app-frame em { font-size: 12px; }
+.app-frame button { font-size: 13px; }
+.app-frame input,
+.app-frame textarea { font-size: 13px; }
+
+.app-frame :is(
+  .eyebrow,
+  .section-kicker,
+  .home-ad-card > span,
+  .status-badge,
+  .room-status,
+  .room-load-status,
+  .room-list-heading,
+  .room-meta,
+  .avatars > span,
+  .rooms-footer-note,
+  .detail-members,
+  .lobby-member-grid > div > span,
+  .lobby-member-grid strong,
+  .room-stage-copy > span,
+  .menu-rank,
+  .match-score,
+  .prototype-note,
+  .tournament-head,
+  .roulette-label,
+  .roulette-guide,
+  .location-line,
+  .map-placeholder,
+  .data-range-note,
+  .restaurant-empty,
+  .restaurant-order,
+  .finish-summary span,
+  .finish-summary strong,
+  .finish-route-map > div:first-child,
+  .room-undo-button,
+  .room-pull-indicator,
+  .modal-kicker,
+  .hold-tip,
+  .budget-range-inputs label > span,
+  .room-mode-setting button > span,
+  .room-mode-setting button b,
+  .member-choice-list button > span,
+  .member-choice-list button b,
+  .member-manage-list > div > span,
+  .member-manage-list b,
+  .friend-list b,
+  .profile-identity > span,
+  .stat-overview span,
+  .food-stat-name,
+  .food-stat-row strong,
+  .history-order,
+  .menu-record-copy span,
+  .menu-bar-item > strong,
+  .menu-bar-item small,
+  .simple-history-item > span,
+  .settings-section-title > span,
+  .splash-ad-kicker,
+  .ad-badge,
+  .guest-name-chip span,
+  .summary-item strong,
+  .hot-potato-leaderboard b,
+  .hot-potato-leaderboard strong
+) {
+  font-size: 12px;
+}
+
+.bottom-nav button { font-size: 12px; }
+.top-header h1 { font-size: 24px; }
+.section-heading h2 { font-size: 20px; }
+.room-stage-copy h2 { font-size: 23px; }
+.quick-grid b,
+.decision-menu b,
+.candidate-copy b,
+.restaurant-main strong { font-size: 14px; }
+
+:root {
+  --warm-shadow: 0 7px 20px rgba(113, 65, 34, .055);
+  --warm-shadow-hover: 0 10px 26px rgba(113, 65, 34, .095);
+}
+:root[data-theme="dark"] {
+  --warm-shadow: 0 7px 20px rgba(0, 0, 0, .16);
+  --warm-shadow-hover: 0 10px 26px rgba(0, 0, 0, .23);
+}
+
+.app-frame { box-shadow: 0 18px 50px rgba(83, 49, 26, .105); }
+.icon-button { box-shadow: 0 3px 10px rgba(113, 65, 34, .045); }
+.splash-brand img { filter: drop-shadow(0 8px 13px rgba(185,72,31,.12)); }
+.onboarding-head img { filter: drop-shadow(0 4px 8px rgba(185,72,31,.10)); }
+.login-visual > span,
+.login-visual > div svg { box-shadow: 0 8px 20px rgba(112, 61, 34, .10); }
+.plate,
+.food-orbit { box-shadow: 0 6px 16px rgba(112, 61, 34, .09); }
+.google-login-button,
+.dark-button,
+.share-wide,
+.sheet-submit,
+.room-primary-button { box-shadow: 0 6px 15px rgba(218, 79, 31, .14); }
+.home-ad-card button,
+.chip-group button.selected,
+.visibility-selector button.selected,
+.theme-selector button.selected { box-shadow: 0 4px 11px rgba(153, 73, 35, .10); }
+.mode-card.selected,
+.restaurant-card.selected { box-shadow: 0 0 0 1px var(--accent), 0 6px 17px rgba(153, 73, 35, .08); }
+.room-undo-button,
+.room-pull-indicator { box-shadow: 0 4px 13px rgba(77, 45, 28, .08); }
+.roulette-wheel { box-shadow: 0 9px 26px rgba(112, 61, 31, .10), inset 0 0 0 2px rgba(153,73,35,.08); }
+.roulette-center { box-shadow: 0 4px 13px rgba(105, 52, 28, .10); }
+.profile-photo { box-shadow: 0 0 0 4px #fff, 0 5px 14px rgba(113,65,34,.09); }
+.toast { box-shadow: 0 6px 18px rgba(63,34,20,.16); }
+
+:root[data-theme="dark"] .app-frame { box-shadow: 0 18px 48px rgba(0,0,0,.24); }
+:root[data-theme="dark"] .roulette-wheel { box-shadow: 0 9px 26px rgba(0,0,0,.24), inset 0 0 0 2px rgba(255,255,255,.07); }
+:root[data-theme="dark"] .profile-card { box-shadow: 0 7px 20px rgba(0,0,0,.15); }
+:root[data-theme="dark"] .profile-photo { box-shadow: 0 0 0 4px rgba(255,120,71,.13); }
+:root[data-theme="dark"] .home-ad-card.ad-light {
+  border: 1px solid #55372a;
+  background: linear-gradient(145deg, #39251c 0%, #2a1b15 100%);
+  color: var(--ink);
+}
+:root[data-theme="dark"] .home-ad-card.ad-light::after { border-color: rgba(255,255,255,.10); }
+:root[data-theme="dark"] :is(.room-primary-button, .sheet-submit, .budget-save-button) {
+  box-shadow: 0 5px 14px rgba(0,0,0,.18);
+}
+
+@media (hover: hover) {
+  :is(.recent-room, .quick-grid button, .room-card, .mode-card, .tournament-pair button,
+  .restaurant-card, .setting-row, .action-list > button):hover {
+    box-shadow: var(--warm-shadow-hover);
+  }
+  :is(.google-login-button, .dark-button, .share-wide, .sheet-submit, .room-primary-button):hover {
+    box-shadow: 0 8px 20px rgba(218,79,31,.17);
+  }
+}
+
+@media (max-width: 760px) {
+  .app-frame { box-shadow: none; }
 }
