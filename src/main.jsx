@@ -1288,14 +1288,15 @@ function App() {
       await update(ref(database), {
         [`rooms/${roomId}`]: roomData,
         [`userRooms/${authUser.uid}/${roomId}`]: true,
-        [`rooms/${roomId}/lastActivityAt`]: Date.now(),
       })
       setSheet(null)
       openRoom(normalizeRoom(roomId, roomData))
       setToast('새 방을 만들었어요')
     } catch (error) {
       console.error('Room create failed:', error)
-      setToast(error.code === 'PERMISSION_DENIED' ? '방 생성 권한이 없어요. Firebase 규칙을 게시해주세요' : `방 생성 실패 · ${error.code || 'DB 연결 확인'}`)
+      setToast(error.code === 'PERMISSION_DENIED'
+        ? '방 생성 권한이 없어요. Firebase 규칙을 확인해주세요'
+        : `방 생성 실패 · ${error.code || error.message || 'DB 연결 확인'}`)
     }
   }
 
@@ -1323,7 +1324,6 @@ function App() {
           joinedAt: Date.now(),
         },
         [`userRooms/${authUser.uid}/${roomId}`]: true,
-        [`rooms/${roomId}/lastActivityAt`]: Date.now(),
       })
       setSheet(null)
       setPendingJoinCode('')
@@ -1337,7 +1337,9 @@ function App() {
       setToast('방에 참여했어요')
     } catch (error) {
       console.error('Room join failed:', error)
-      setToast('방 접속에 실패했어요. DB 규칙을 확인해주세요')
+      setToast(error.code === 'PERMISSION_DENIED'
+        ? '방 접속 권한이 없어요. Firebase 규칙을 확인해주세요'
+        : `방 접속 실패 · ${error.code || error.message || 'DB 연결 확인'}`)
     }
   }
 
