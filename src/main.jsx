@@ -1293,17 +1293,32 @@ function App() {
       return false
     }
     try {
+      let friendUid = null
       const nicknameSnapshot = await get(ref(database, `nicknames/${nicknamePathKey(normalizedNickname)}`))
-      if (!nicknameSnapshot.exists()) {
+      if (nicknameSnapshot.exists()) friendUid = nicknameSnapshot.val()
+      if (!friendUid) {
+        const directoryQuery = query(ref(database, 'userDirectory'), orderByChild('nameNormalized'), equalTo(normalizedNickname))
+        const directorySnapshot = await get(directoryQuery)
+        friendUid = Object.keys(directorySnapshot.val() || {})[0] || null
+      }
+      if (!friendUid) {
         setToast('해당 닉네임의 사용자를 찾지 못했어요')
         return false
       }
-      const friendUid = nicknameSnapshot.val()
       if (friendUid === authUser.uid) {
         setToast('내 닉네임은 친구로 추가할 수 없어요')
         return false
       }
-      const friendSnapshot = await get(ref(database, `userDirectory/${friendUid}`))
+      let friendSnapshot = await get(ref(database, `userDirectory/${friendUid}`))
+      if (!friendSnapshot.exists()) {
+        const directoryQuery = query(ref(database, 'userDirectory'), orderByChild('nameNormalized'), equalTo(normalizedNickname))
+        const directorySnapshot = await get(directoryQuery)
+        const fallbackUid = Object.keys(directorySnapshot.val() || {})[0]
+        if (fallbackUid) {
+          friendUid = fallbackUid
+          friendSnapshot = await get(ref(database, `userDirectory/${friendUid}`))
+        }
+      }
       if (!friendSnapshot.exists()) {
         setToast('친구 프로필을 불러오지 못했어요')
         return false
@@ -1485,6 +1500,7 @@ function App() {
         {authUser.isAnonymous ? (
           <GuestOnboardingScreen
             profile={userProfile}
+            onBack={logout}
             onComplete={async (profile) => {
               const saved = await saveUserProfile({ ...profile, onboardingComplete: true }, '비회원 설정을 완료했어요')
               if (saved) setNeedsOnboarding(false)
@@ -1701,9 +1717,9 @@ function OnboardingScreen({ profile, onComplete }) {
         <label className="field-label">사용할 닉네임<input value={name} onChange={(event) => setName(event.target.value)} maxLength={20} placeholder="2~20자 고유 닉네임" /></label>
         {[
           ['allergies', '1. 알레르기', '해당하는 알레르기를 먼저 선택해주세요.'],
-          ['cuisine', '2. 선호 음식 종류', '평소 좋아하는 음식 종류를 골라주세요.'],
-          ['form', '3. 선호 음식 형태', '밥·면·고기처럼 좋아하는 형태를 골라주세요.'],
-          ['cooking', '4. 선호 조리 방식', '좋아하는 조리 방식을 골라주세요.'],
+          ['cuisine', '2. 선호하는 음식 종류', '평소 좋아하는 음식 종류를 골라주세요.'],
+          ['form', '3. 선호하는 음식 형태', '밥·면·고기처럼 좋아하는 형태를 골라주세요.'],
+          ['cooking', '4. 선호하는 조리 방식', '좋아하는 조리 방식을 골라주세요.'],
         ].map(([group, label, description]) => (
           <section className="onboarding-choice" key={group}><strong>{label}</strong><small>{description}</small><div>{options[group].map((item) => <button type="button" key={item} className={selected[group].includes(item) ? 'selected' : ''} onClick={() => toggle(group, item)}>{item}</button>)}</div></section>
         ))}
@@ -1714,35 +1730,44 @@ function OnboardingScreen({ profile, onComplete }) {
   )
 }
 
-function GuestOnboardingScreen({ profile, onComplete }) {
-  const [selectedAllergies, setSelectedAllergies] = useState(profile.allergies || [])
-  const [selectedKinds, setSelectedKinds] = useState([])
+function GuestOnboardingScreen({ profile, onComplete, onBack }) {
+  const [selected, setSelected] = useState({
+    allergies: profile.allergies || [],
+    cuisine: profile.cuisine || [],
+    form: profile.form || [],
+    cooking: profile.cooking || [],
+  })
   const [busy, setBusy] = useState(false)
   const allergies = ['난류(가금류)', '우유', '메밀', '땅콩', '대두(콩류)', '밀', '잣', '호두', '갑각류', '게', '새우', '오징어', '고등어', '조개류(굴·전복·홍합)', '복숭아', '토마토', '닭고기', '돼지고기', '쇠고기', '아황산류']
-  const kinds = ['국', '탕', '밥']
-  const toggle = (setter, item) => setter((current) => current.includes(item) ? current.filter((value) => value !== item) : [...current, item])
+  const options = {
+    cuisine: ['한식', '중식', '일식', '양식', '동남아 음식', '인도·중동 음식', '분식', '패스트푸드', '기타'],
+    form: ['밥류', '면류', '빵류', '고기류', '해산물류', '채소류', '떡류'],
+    cooking: ['국물', '볶음', '구이', '튀김', '찜', '조림', '비빔', '생식 (회·육회 등)'],
+  }
+  const toggle = (group, item) => setSelected((current) => ({
+    ...current,
+    [group]: current[group].includes(item) ? current[group].filter((value) => value !== item) : [...current[group], item],
+  }))
   const submit = async () => {
     setBusy(true)
     const saved = await onComplete({
       ...profile,
-      allergies: selectedAllergies,
-      cuisine: ['한식'],
-      form: selectedKinds.includes('밥') ? ['밥류'] : [],
-      cooking: selectedKinds.some((kind) => kind === '국' || kind === '탕') ? ['국물'] : [],
-      guestKinds: selectedKinds,
+      ...selected,
       avoided: [],
     })
     if (!saved) setBusy(false)
   }
   return (
     <main className="onboarding-page guest-onboarding-page">
-      <div className="onboarding-head"><img src="/assets/modumanjok-logo.png" alt="" /><span><small>빠르게 시작하기</small><h1>비회원 간단 설정</h1><p>알레르기와 국·탕·밥 취향만 고르면 바로 모임에 참여할 수 있어요.</p></span></div>
+      <div className="onboarding-head"><button type="button" className="icon-button back-button" onClick={onBack} aria-label="로그인으로 돌아가기"><ArrowLeft size={22} /></button><img src="/assets/modumanjok-logo.png" alt="" /><span><small>빠르게 시작하기</small><h1>비회원 간단 설정</h1><p>알레르기와 선호하는 음식 조건만 고르면 바로 모임에 참여할 수 있어요.</p></span></div>
       <div className="guest-name-chip"><span>임시 닉네임</span><strong>{profile.name}</strong><small>프로필 설정에서 변경할 수 없어요.</small></div>
       <div className="onboarding-scroll guest-onboarding-scroll">
-        <section className="onboarding-choice"><strong>1. 알레르기</strong><small>해당하는 항목을 모두 선택해주세요. 없으면 건너뛰어도 돼요.</small><div>{allergies.map((item) => <button type="button" key={item} className={selectedAllergies.includes(item) ? 'selected' : ''} onClick={() => toggle(setSelectedAllergies, item)}>{item}</button>)}</div></section>
-        <section className="onboarding-choice"><strong>2. 먹고 싶은 형태</strong><small>국, 탕, 밥 중 원하는 메뉴 형태를 골라주세요.</small><div>{kinds.map((item) => <button type="button" key={item} className={selectedKinds.includes(item) ? 'selected' : ''} onClick={() => toggle(setSelectedKinds, item)}>{item}</button>)}</div></section>
+        <section className="onboarding-choice"><strong>1. 알레르기</strong><small>해당하는 항목을 모두 선택해주세요. 없으면 건너뛰어도 돼요.</small><div>{allergies.map((item) => <button type="button" key={item} className={selected.allergies.includes(item) ? 'selected' : ''} onClick={() => toggle('allergies', item)}>{item}</button>)}</div></section>
+        {[['cuisine', '2. 선호하는 음식 종류'], ['form', '3. 선호하는 음식 형태'], ['cooking', '4. 선호하는 조리 방식']].map(([group, label]) => (
+          <section className="onboarding-choice" key={group}><strong>{label}</strong><small>원하는 항목을 모두 선택해주세요.</small><div>{options[group].map((item) => <button type="button" key={item} className={selected[group].includes(item) ? 'selected' : ''} onClick={() => toggle(group, item)}>{item}</button>)}</div></section>
+        ))}
       </div>
-      <button type="button" className="room-primary-button onboarding-submit" disabled={busy || !selectedKinds.length} onClick={submit}>{busy ? '저장 중…' : '설정 완료하고 방 접속하기'} <ChevronRight size={18} /></button>
+      <button type="button" className="room-primary-button onboarding-submit" disabled={busy || !(selected.cuisine.length || selected.form.length || selected.cooking.length)} onClick={submit}>{busy ? '저장 중…' : '설정 완료하고 방 접속하기'} <ChevronRight size={18} /></button>
     </main>
   )
 }
@@ -2578,7 +2603,7 @@ function RoomDetail({ room, currentUser, friends, onBack, onShare, onDelete, onL
           </div>
           {rouletteState === 'stopped' && rouletteResult ? (
             <div className="roulette-result"><small>룰렛 결과</small><strong>{rouletteResult}</strong></div>
-          ) : <p className="roulette-guide">{rouletteState === 'spinning' ? '메뉴를 고르는 중이에요…' : `${rouletteMenus.length}개 안전 후보가 준비됐어요.`}</p>}
+          ) : <p className="roulette-guide">{rouletteState === 'spinning' ? '메뉴를 고르는 중이에요…' : '16개의 후보가 준비됐어요.'}</p>}
           {rouletteState === 'idle' && (
             <button type="button" className="room-primary-button roulette-spin-button" disabled={!isOwner} onClick={spinRoulette}><Play size={18} fill="currentColor" /> {isOwner ? '돌리기' : '방장이 룰렛을 돌리는 중'}</button>
           )}
@@ -2780,9 +2805,9 @@ function ProfileScreen({ profile, focusTarget, onOpenSettings, onEditProfile, on
           <button type="button" className="section-edit" onClick={onEditTaste}><Pencil size={14} /> 편집</button>
         </div>
         <div className="taste-card">
-          <TasteRow icon={<Heart size={17} />} label="음식 종류" values={profile.cuisine} />
-          <TasteRow icon={<UtensilsCrossed size={17} />} label="음식 형태" values={profile.form} />
-          <TasteRow icon={<Sparkles size={17} />} label="조리 방식" values={profile.cooking} />
+          <TasteRow icon={<Heart size={17} />} label="선호하는 음식 종류" values={profile.cuisine} />
+          <TasteRow icon={<UtensilsCrossed size={17} />} label="선호하는 음식 형태" values={profile.form} />
+          <TasteRow icon={<Sparkles size={17} />} label="선호하는 조리 방식" values={profile.cooking} />
           <TasteRow icon={<UtensilsCrossed size={17} />} label="못 먹는 음식" values={profile.avoided} />
           <TasteRow icon={<AlertTriangle size={17} />} label="알레르기" values={profile.allergies} warning />
         </div>
@@ -2950,9 +2975,9 @@ function TasteEditSheet({ profile, onClose, onSave }) {
           <div>{options.allergies.map((item) => <button type="button" key={item} className={selected.allergies.includes(item) ? 'selected' : ''} onClick={() => toggle('allergies', item)}>{item}</button>)}</div>
         </div>
         {[
-          ['cuisine', '2. 음식 종류'],
-          ['form', '3. 음식 형태'],
-          ['cooking', '4. 조리 방식'],
+          ['cuisine', '2. 선호하는 음식 종류'],
+          ['form', '3. 선호하는 음식 형태'],
+          ['cooking', '4. 선호하는 조리 방식'],
         ].map(([group, label]) => (
           <div className="chip-group" key={group}>
             <strong>{label}</strong>
