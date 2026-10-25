@@ -1,5 +1,4 @@
 {
-  "functions": { "api/restaurant-rating.js": { "maxDuration": 60 } },
   "headers": [
     { "source": "/__/auth/:path*", "headers": [{ "key": "Cache-Control", "value": "no-store" }] }
   ],

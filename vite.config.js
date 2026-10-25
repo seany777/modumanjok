@@ -4,7 +4,6 @@ import react from '@vitejs/plugin-react'
 const redtablePaths = {
   menus: '/api/menu/korean',
   restaurants: '/api/rstr',
-  quality: '/api/rstr/qlt',
 }
 
 function localRedtableApi(mode) {
