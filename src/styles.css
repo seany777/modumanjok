@@ -1915,3 +1915,104 @@ button:focus-visible, input:focus-visible, textarea:focus-visible {
 @media (max-width: 760px) {
   .app-frame { box-shadow: none; }
 }
+
+.desktop-nav-brand, .desktop-room-summary { display: none; }
+
+/* Wide screens use a workspace layout; phone layouts keep their own rhythm. */
+@media (min-width: 1024px) {
+  .site-shell { grid-template-columns: minmax(0, 1280px); padding: 24px 32px; }
+  .app-frame { max-width: 1280px; height: 100%; min-height: 0; border-radius: 26px; }
+  .page { padding: 12px 32px 40px; }
+  .top-header { min-height: 92px; padding: 18px 0 24px; }
+  .top-header h1 { font-size: 29px; }
+  .app-frame:has(> .bottom-nav) > .page { width: calc(100% - 184px); margin-left: 184px; }
+  .bottom-nav {
+    inset: 0 auto 0 0;
+    width: 184px;
+    height: 100%;
+    padding: 32px 14px;
+    display: flex;
+    flex-direction: column;
+    align-items: stretch;
+    gap: 8px;
+    border-top: 0;
+    border-right: 1px solid var(--line);
+    background: var(--card);
+    transform: none;
+  }
+  .desktop-nav-brand { display: grid; justify-items: start; gap: 9px; padding: 0 13px 28px; }
+  .desktop-nav-brand img { width: 43px; height: 43px; object-fit: contain; }
+  .desktop-nav-brand strong { font-size: 22px; letter-spacing: -.06em; }
+  .desktop-nav-brand small { max-width: 125px; color: var(--muted); line-height: 1.6; }
+  .bottom-nav button { flex-direction: row; justify-content: flex-start; padding: 0 13px; gap: 10px; height: 52px; font-size: 14px; }
+  .bottom-nav button.active { background: var(--accent-faint); }
+  .bottom-nav button .nav-icon { width: 28px; }
+  .home-page { display: grid; grid-template-columns: minmax(0, 1.15fr) minmax(0, 1fr); grid-template-rows: auto auto 1fr; gap: 24px; align-content: start; }
+  .home-page > .top-header { grid-column: 1 / -1; grid-row: 1; padding-bottom: 0; }
+  .home-page > .home-ad-wrap { grid-column: 1; grid-row: 2; align-self: start; margin: 0; }
+  .home-page > .section-block.compact { grid-column: 1; grid-row: 3; margin-top: 0; }
+  .home-page > .section-block:not(.compact) {
+    grid-column: 2;
+    grid-row: 2 / 4;
+    align-self: start;
+    margin-top: 0;
+    padding: 22px;
+    border: 1px solid var(--line);
+    border-radius: 24px;
+    background: var(--card);
+  }
+  .home-page .home-ad-card { min-height: 270px; padding: 26px 24px 42px; }
+  .home-page .home-ad-card h2 { font-size: 27px; }
+  .home-page .home-ad-card > button { position: relative; left: auto; bottom: auto; margin-top: 16px; }
+  .home-page .recent-room { background: var(--paper); box-shadow: none; }
+  .home-page .empty-recent-room { min-height: 220px; flex-direction: column; text-align: center; }
+  .home-page .summary-grid { grid-template-columns: 1fr; gap: 14px; }
+  .home-page .quick-grid button { min-height: 148px; padding: 16px 12px; }
+  .home-page .quick-grid b { font-size: 13px; line-height: 1.5; }
+  .rooms-screen { height: 100%; }
+  .room-list { grid-template-columns: repeat(2, minmax(0, 1fr)); align-items: start; }
+  .rooms-fixed-area .search-box { max-width: 560px; }
+  .page:has(> .profile-card) { display: grid; grid-template-columns: 1fr 1fr; gap: 24px; align-content: start; }
+  .page:has(> .profile-card) > :is(.top-header, .profile-card) { grid-column: 1 / -1; }
+  .page:has(> .profile-card) .profile-section { margin-top: 0; min-width: 0; }
+  .page:has(> .placeholder-card) .placeholder-card { max-width: 720px; margin: 24px auto; }
+  .room-flow-page { display: grid; grid-template-columns: 224px minmax(0, 1fr); grid-template-rows: auto 1fr; gap: 24px 28px; padding-bottom: 84px; align-content: start; align-items: start; }
+  .room-flow-page > .top-header { grid-column: 1 / -1; padding-bottom: 0; }
+  .desktop-room-summary { display: block; position: sticky; top: 12px; padding: 21px 18px; border: 1px solid var(--line); border-radius: 22px; background: var(--card); min-width: 0; }
+  .desktop-room-summary h2 { margin: 9px 0; font-size: 23px; overflow-wrap: anywhere; }
+  .desktop-room-summary > p { color: var(--muted); line-height: 1.6; }
+  .desktop-room-summary dl { margin: 24px 0; padding: 16px 0; border-block: 1px solid var(--line); }
+  .desktop-room-summary dl > div + div { margin-top: 15px; }
+  .desktop-room-summary dt { color: var(--muted); font-size: 12px; }
+  .desktop-room-summary dd { margin: 5px 0 0; font-size: 14px; font-weight: 750; line-height: 1.5; }
+  .desktop-room-summary h3 { font-size: 14px; }
+  .desktop-room-summary h3 > span { color: var(--accent-strong); margin-left: 5px; }
+  .desktop-room-summary ul { list-style: none; padding: 0; margin: 14px 0 24px; max-height: 220px; overflow-y: auto; }
+  .desktop-room-summary li { display: flex; align-items: center; gap: 9px; margin: 10px 0; font-size: 13px; }
+  .desktop-room-summary li strong { flex: 1; min-width: 0; overflow-wrap: anywhere; }
+  .desktop-room-summary li > svg { flex-shrink: 0; color: var(--accent-strong); }
+  .desktop-member-avatar { width: 29px; height: 29px; display: grid; place-items: center; flex-shrink: 0; border-radius: 10px; color: var(--accent-strong); background: var(--accent-faint); }
+  .desktop-room-summary .share-wide { min-height: 43px; margin-top: 12px; }
+  .desktop-room-summary .change-mode-button { margin: 10px 0 0; }
+  .room-flow-page > .room-stage-motion { min-width: 0; }
+  .room-stage-section { padding: 26px; border: 1px solid var(--line); border-radius: 24px; background: var(--card); }
+  .mode-ready-stage { min-height: 530px; }
+  .tournament-pair { gap: 20px; }
+  .tournament-food-image { aspect-ratio: 1.25; }
+  .room-flow-page .room-undo-button { position: static; grid-column: 2; justify-self: end; margin-top: 0; }
+  .restaurant-discovery-layout { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 20px; margin-top: 20px; align-items: start; }
+  .restaurant-map-panel { position: sticky; top: 12px; min-width: 0; }
+  .restaurant-map-panel .naver-restaurant-map, .restaurant-map-panel .map-placeholder { height: 340px; }
+  .restaurant-discovery-layout .restaurant-list { margin-top: 0; min-width: 0; }
+  .restaurant-discovery-layout .location-line { flex-wrap: wrap; }
+  .restaurant-discovery-layout .location-line small { margin-left: 0; }
+  .restaurant-discovery-layout .restaurant-main { padding: 14px 10px; gap: 9px; }
+  .overlay, .sheet-overlay { align-items: center; padding: 24px; }
+  .modal-card, .action-sheet { max-width: 560px; border-radius: 26px; max-height: calc(100% - 48px); overflow-y: auto; }
+  .app-frame > .auth-page { max-width: 780px; margin: 0 auto; }
+  .app-frame > .login-page { max-width: none; display: grid; grid-template-columns: 1fr 1fr; grid-template-rows: 1fr auto; gap: 28px 54px; padding: 60px; align-items: center; }
+  .login-copy { padding-top: 0; }
+  .login-copy h1 { font-size: 42px; }
+  .login-visual { grid-column: 2; grid-row: 1 / 3; width: 100%; height: 100%; min-height: 300px; margin: 0; }
+  .login-actions { grid-column: 1; grid-row: 2; }
+}

@@ -850,6 +850,7 @@ function App() {
   const [authError, setAuthError] = useState('')
   const [activeTab, setActiveTab] = useState('home')
   const [rooms, setRooms] = useState([])
+  const [latestRoomSelection, setLatestRoomSelection] = useState(null)
   const [friends, setFriends] = useState([])
   const [selectedRoom, setSelectedRoom] = useState(null)
   const [requestedRoomId, setRequestedRoomId] = useState('')
@@ -1095,6 +1096,7 @@ function App() {
   useEffect(() => {
     if (!authUser) {
       setRooms([])
+      setLatestRoomSelection(null)
       setFriends([])
       setRoomsLoading(false)
       setRoomsLoadStatus('idle')
@@ -1107,6 +1109,11 @@ function App() {
     setRoomsLoadError('')
     const unsubscribeRooms = onValue(ref(database, 'rooms'), (snapshot) => {
       try {
+        const latest = Object.entries(snapshot.val() || {})
+          .filter(([, room]) => Number(room.flow?.stage) === 4 && room.flow?.selectedMenu && room.flow?.selectedRestaurant?.name)
+          .map(([roomId, room]) => ({ roomId, menu: room.flow.selectedMenu, restaurant: room.flow.selectedRestaurant.name, decidedAt: Number(room.flow.completedAt || 0) }))
+          .sort((a, b) => b.decidedAt - a.decidedAt)[0] || null
+        setLatestRoomSelection(latest)
         const nextRooms = Object.entries(snapshot.val() || {})
           .filter(([, room]) => Boolean(room.members?.[authUser.uid]))
           .map(([roomId, room]) => normalizeRoom(roomId, room))
@@ -1594,6 +1601,18 @@ function App() {
       const changes = Object.fromEntries(Object.entries({ ...patch, updatedAt: now }).map(([key, value]) => [`rooms/${room.id}/flow/${key}`, value]))
       changes[`rooms/${room.id}/lastActivityAt`] = now
       await update(ref(database), changes)
+      if (patch.stage === 4 && patch.selectedRestaurant?.name && (patch.selectedMenu || room.flow?.selectedMenu)) {
+        const selection = {
+          roomId: room.id,
+          menu: patch.selectedMenu || room.flow.selectedMenu,
+          restaurant: patch.selectedRestaurant.name,
+          decidedAt: Number(patch.completedAt || now),
+        }
+        runTransaction(ref(database, 'community/latestSelection'), (current) => {
+          if (Number(current?.decidedAt || 0) >= selection.decidedAt) return undefined
+          return selection
+        }).catch((error) => console.warn('Community selection sync failed:', error))
+      }
       return true
     } catch (error) {
       console.error('Room flow sync failed:', error)
@@ -1816,7 +1835,7 @@ function App() {
             onJoin={() => setSheet('join')}
           />
         )}
-        {activeTab === 'community' && <PlaceholderScreen type="community" />}
+        {activeTab === 'community' && <CommunityScreen fallbackSelection={latestRoomSelection} />}
         {activeTab === 'profile' && (settingsOpen ? (
           <SettingsScreen
             profile={userProfile}
@@ -2255,6 +2274,26 @@ function RoomCard({ room, onOpen, onLongPress }) {
         <p>{visibleMembers.join(', ')}{hiddenCount > 0 ? '…' : ''}</p>
       </div>
     </button>
+  )
+}
+
+function DesktopRoomSummary({ room, onShare, onSettings }) {
+  return (
+    <aside className="desktop-room-summary" aria-label="모임 정보">
+      <span className="section-kicker">OUR TABLE</span>
+      <h2>{room.name}</h2>
+      <p>함께 고르고, 모두 맛있게.</p>
+      <dl>
+        <div><dt>결정 방식</dt><dd>{roomModeLabels[room.flow?.mode || 'ai']}</dd></div>
+        <div><dt>1인당 예산</dt><dd>{Number(room.flow?.budgetMin ?? 8000).toLocaleString('ko-KR')} ~ {Number(room.flow?.budgetMax ?? 20000).toLocaleString('ko-KR')}원</dd></div>
+      </dl>
+      <h3>함께하는 사람들 <span>{room.members.length}</span></h3>
+      <ul>{Object.entries(room.memberRecords || {}).map(([uid, member]) => (
+        <li key={uid}><span className="desktop-member-avatar">{member.name?.slice(0, 1) || '?'}</span><strong>{member.name || '참여자'}</strong>{uid === room.ownerId && <Crown size={15} aria-label="방장" />}</li>
+      ))}</ul>
+      <button type="button" className="share-wide secondary-share" onClick={onShare}><QrCode size={17} /> 초대 코드 보기</button>
+      <button type="button" className="change-mode-button" onClick={onSettings}><Settings size={16} /> 방 설정</button>
+    </aside>
   )
 }
 
@@ -2734,6 +2773,7 @@ function RoomDetail({ room, currentUser, friends, onBack, onShare, onKakaoShare,
           title={room.name}
           action={<button type="button" className="icon-button" onClick={() => setRoomSettingsOpen(true)} aria-label="방 설정"><Settings size={21} /></button>}
         />
+        <DesktopRoomSummary room={room} onShare={onShare} onSettings={() => setRoomSettingsOpen(true)} />
         <div className={`room-stage-motion ${transitionDirection}`}>
           <section className="room-lobby-hero">
             <span className="status-badge">시작 전</span>
@@ -2780,6 +2820,7 @@ function RoomDetail({ room, currentUser, friends, onBack, onShare, onKakaoShare,
         action={<button type="button" className="icon-button" onClick={() => setRoomSettingsOpen(true)} aria-label="방 설정"><Settings size={21} /></button>}
       />
 
+      <DesktopRoomSummary room={room} onShare={onShare} onSettings={() => setRoomSettingsOpen(true)} />
       <div key={stage} className={`room-stage-motion ${transitionDirection}`}>
 
       {stage === 1 && (
@@ -2979,6 +3020,7 @@ function RoomDetail({ room, currentUser, friends, onBack, onShare, onKakaoShare,
               </div>
             </div>
           )}
+          <div className="restaurant-discovery-layout"><div className="restaurant-map-panel">
           <div className="location-line"><Navigation size={16} /><span>{locationMode === 'manual' ? '입력한 위치 기준 거리' : userLocation ? '내 현재 위치 기준 거리' : '현재 위치 확인 전'}</span><small>{locationMode === 'manual' ? locationText : userLocation ? `${userLocation.lat.toFixed(3)}, ${userLocation.lng.toFixed(3)}` : '위치 권한 필요'}</small></div>
           {(userLocation || locationMode === 'manual') && <p className={`data-range-note ${restaurantSource}`}><Info size={13} /> {currentArea && <strong>{currentArea}</strong>} {restaurantMessage || '현재 위치를 식당 검색에 반영하고 있어요.'}</p>}
           <NaverRestaurantMap restaurants={restaurantOptions} selectedRestaurant={selectedRestaurant} userLocation={userLocation} />
@@ -2989,6 +3031,7 @@ function RoomDetail({ room, currentUser, friends, onBack, onShare, onKakaoShare,
               <button type="button" disabled={!locationOverrideText.trim()} onClick={() => { onFlowChange({ locationMode: 'manual', locationText: locationOverrideText.trim() }); setLocationOverrideOpen(false) }}>이 위치로 검색</button>
             </div>
           )}
+          </div>
           <div className="restaurant-list">
             {restaurantOptions.map((restaurant, index) => {
               const isOpen = expandedRestaurant === restaurant.id
@@ -3026,6 +3069,7 @@ function RoomDetail({ room, currentUser, friends, onBack, onShare, onKakaoShare,
             })}
             {!restaurantOptions.length && restaurantSource === 'loading' && <div className="restaurant-empty"><span className="mini-spinner" /> 주변 식당을 불러오는 중이에요.</div>}
             {!restaurantOptions.length && restaurantSource === 'error' && <div className="restaurant-empty error"><AlertTriangle size={18} /><span>{restaurantMessage}<small>위치를 다시 입력하거나 잠시 후 다시 시도해주세요.</small></span></div>}
+          </div>
           </div>
           <p className="prototype-note"><Info size={14} /> 매장 선택 전 주소와 네이버 지도 정보를 확인해주세요.</p>
           <button type="button" className="room-primary-button stage-next" disabled={!isOwner || !selectedRestaurant} onClick={() => moveToStage(4, { selectedRestaurant, completedAt: Date.now() })}>{!isOwner ? '방장이 매장을 결정하고 있어요' : selectedRestaurant ? `${selectedRestaurant.name}으로 결정` : '매장을 선택해주세요'} <ChevronRight size={18} /></button>
@@ -3370,7 +3414,8 @@ function TasteEditSheet({ profile, onClose, onSave }) {
 
 function BottomNav({ active, onChange }) {
   return (
-    <nav className="bottom-nav" aria-label="하단 메뉴">
+    <nav className="bottom-nav" aria-label="주 메뉴">
+      <div className="desktop-nav-brand"><img src="/assets/modumanjok-logo.png" alt="" /><strong>모두만족</strong><small>함께 먹을 메뉴, 함께 결정해요.</small></div>
       {navItems.map(({ id, label, icon: Icon }) => (
         <button key={id} type="button" className={active === id ? 'active' : ''} onClick={() => onChange(id)}>
           <span className="nav-icon"><Icon size={22} strokeWidth={active === id ? 2.6 : 2} /></span>
@@ -3607,6 +3652,48 @@ function ActionSheet({ type, initialCode = '', onClose, onCreate, onJoin }) {
         )}
       </section>
     </div>
+  )
+}
+
+function CommunityScreen({ fallbackSelection }) {
+  const [selection, setSelection] = useState(null)
+  const [status, setStatus] = useState('loading')
+  const [retry, setRetry] = useState(0)
+
+  useEffect(() => {
+    setStatus('loading')
+    return onValue(ref(database, 'community/latestSelection'), (snapshot) => {
+      setSelection(snapshot.val())
+      setStatus('ready')
+    }, () => setStatus('error'))
+  }, [retry])
+
+  const latest = [selection, fallbackSelection]
+    .filter((item) => item?.menu && item?.restaurant)
+    .sort((a, b) => Number(b.decidedAt || 0) - Number(a.decidedAt || 0))[0]
+
+  return (
+    <>
+      <Header eyebrow="COMMUNITY · BETA" title="커뮤니티" />
+      <section className="community-beta" aria-label="최근 선택된 메뉴">
+        <div className="community-beta-heading"><h2>최근 선택된 메뉴</h2><span><i aria-hidden="true" /> 실시간</span></div>
+        <p className="community-intro">다른 모임은 어떤 메뉴를 골랐을까요?</p>
+        <div className="community-latest" aria-live="polite" aria-atomic="true" aria-busy={!latest && status === 'loading'}>
+          {latest ? (
+            <article key={`${latest.roomId}-${latest.decidedAt}`} className="community-menu-card">
+              <span className="community-menu-icon"><UtensilsCrossed size={26} /></span>
+              <h3>{latest.menu}</h3>
+              <p className="community-restaurant"><MapPin size={15} /><span>{latest.restaurant}</span></p>
+            </article>
+          ) : (
+            <div className="community-empty">
+              {status === 'loading' ? <><span className="mini-spinner" /><p>최근 메뉴를 불러오고 있어요.</p></> : status === 'error' ? <><AlertTriangle size={25} /><p>최근 메뉴를 불러오지 못했어요.</p><button type="button" onClick={() => setRetry((value) => value + 1)}>다시 시도</button></> : <><UtensilsCrossed size={28} /><h3>첫 번째 메뉴를 기다리고 있어요</h3><p>모임에서 매장을 확정하면 여기에 표시돼요.</p></>}
+            </div>
+          )}
+        </div>
+        <p className="community-update-note">매장이 확정되면 가장 최근 결과로 자동 업데이트돼요.</p>
+      </section>
+    </>
   )
 }
 
