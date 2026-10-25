@@ -1958,12 +1958,6 @@ button:focus-visible, input:focus-visible, textarea:focus-visible {
 .room-submit-button:disabled { cursor: wait; }
 .room-submit-status { color: var(--muted); text-align: center; font-size: 12px; line-height: 1.6; }
 .room-submit-status:not(:empty) { margin-top: 12px; }
-.restaurant-rating-control { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-top: 12px; color: var(--muted); font-size: 12px; line-height: 1.6; }
-.restaurant-rating-control > button { display: inline-flex; align-items: center; justify-content: center; gap: 7px; padding: 9px 12px; border: 1px solid var(--line); border-radius: 12px; background: var(--accent-faint); color: var(--accent-strong); font-size: 12px; font-weight: 750; cursor: pointer; }
-.restaurant-rating-control > button:disabled { cursor: wait; opacity: .65; }
-.restaurant-rating-control > small { flex-basis: 100%; }
-.verified-rating { color: var(--accent-strong); font-size: 16px; font-weight: 800; }
-.verified-rating small { color: var(--muted); font-weight: 500; }
 .lobby-condition-editor { margin-top: 14px; }
 .app-frame .member-presence { display: inline-flex; align-items: center; gap: 5px; color: var(--muted); font-size: 12px; font-weight: 500; line-height: 1.5; white-space: nowrap; }
 .member-presence i { width: 6px; height: 6px; border-radius: 50%; flex-shrink: 0; background: #9a928b; }
