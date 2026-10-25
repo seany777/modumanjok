@@ -2282,7 +2282,7 @@ function useRoomScrollEdges(pageRef, stage) {
     const page = pageRef.current
     if (!page) return undefined
     let frame
-    const panes = [...page.querySelectorAll('.room-stage-motion, .desktop-room-summary ul')]
+    const panes = [...page.querySelectorAll('.room-stage-motion, .desktop-room-summary ul, .restaurant-list')]
     const refresh = () => {
       cancelAnimationFrame(frame)
       frame = requestAnimationFrame(() => panes.forEach((pane) => {
@@ -3045,7 +3045,7 @@ function RoomDetail({ room, currentUser, friends, onBack, onShare, onKakaoShare,
       )}
 
       {stage === 3 && (
-        <section className="room-stage-section">
+        <section className="room-stage-section restaurant-stage">
           <div className="selected-menu-banner"><span><CheckCircle2 size={22} /></span><div><small>선택한 메뉴</small><strong>{selectedMenu}</strong></div></div>
           {mode === 'ai' && selectedCandidate && (
             <div className="recommendation-explanation">
@@ -3068,7 +3068,7 @@ function RoomDetail({ room, currentUser, friends, onBack, onShare, onKakaoShare,
             </div>
           )}
           </div>
-          <div className="restaurant-list">
+          <div className="restaurant-list" tabIndex={0} role="region" aria-label="추천 식당 목록">
             {restaurantOptions.map((restaurant, index) => {
               const isOpen = expandedRestaurant === restaurant.id
               const isSelected = selectedRestaurant?.id === restaurant.id
