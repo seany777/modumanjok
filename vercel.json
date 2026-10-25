@@ -1,3 +1,10 @@
 {
-  "rewrites": [{ "source": "/(.*)", "destination": "/index.html" }]
+  "headers": [
+    { "source": "/__/auth/:path*", "headers": [{ "key": "Cache-Control", "value": "no-store" }] }
+  ],
+  "rewrites": [
+    { "source": "/__/auth/:path*", "destination": "https://modumanjok.firebaseapp.com/__/auth/:path*" },
+    { "source": "/__/firebase/:path*", "destination": "https://modumanjok.firebaseapp.com/__/firebase/:path*" },
+    { "source": "/(.*)", "destination": "/index.html" }
+  ]
 }
